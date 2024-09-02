@@ -1,6 +1,6 @@
 services:
-  actor_demo:
-    image: actor_demo-image
+  lime_simul_demo:
+    image: lime_simul_demo-image
     build:
       context: .
       dockerfile: Dockerfile
