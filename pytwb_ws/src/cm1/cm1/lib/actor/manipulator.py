@@ -1,0 +1,271 @@
+import array
+import operator
+from math import radians, atan2, degrees, pi
+import numpy as np
+import quaternion
+from simple_pid.pid import PID
+
+from control_msgs.action import GripperCommand as GripperCommandAction
+
+from ros_actor import actor, SubNet
+
+adjust_plus = 1.1  
+adjust_minus = 1.25
+
+class ManipulatorNetwork(SubNet):
+    # set to home position
+    @actor
+    def home(self):
+        '''
+        angle = (0, 90, 0)
+        pos = (0.3, 0.0, 0.15)
+        self.run_actor('arm_pose', pos, list(map(radians, angle)))
+        '''
+#        joint = [0.0, 1.0, 1.575, 0.0, -1.0, 0.0]
+        joint = [0.0, radians(23), radians(80), 0.0, -radians(14), 0.0]
+        self.run_actor('move_joint', *joint)
+        return True
+        
+    @actor
+    def arm0(self):
+        '''
+        angle = (0, 90, 0)
+        pos = (0.3, 0.0, 0.15)
+        self.run_actor('arm_pose', pos, list(map(radians, angle)))
+        '''
+        joint = [0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
+        self.run_actor('move_joint', *joint)
+        return True
+
+    @actor    
+    def move_joint(self, *joint_values):
+        joint_positions = array.array('d', joint_values)
+#        node = self.get_value('node')
+#        node.get_logger().info(f"Moving to {{joint_positions: {list(joint_positions)}}}")
+        res = self.run_actor("move_to_configuration", joint_positions)
+        self.set_value('joint_stat', joint_values)
+        return res
+    
+    # joint angle in degree units
+    @actor
+    def move_joint_degree(self, *args):
+        return self.move_joint(*list(map(radians, args)))
+
+    # designate diff value of each joint
+    @actor
+    def adjust_joint(self, *args):
+        value = self.get_value('joint_stat')
+        off = list(map(radians, args))
+        return self.move_joint(*list(map(operator.add, value, off)))
+
+    @actor
+    def adjust_joint_radian(self, *args):
+        value = self.get_value('joint_stat')
+        return self.move_joint(*list(map(operator.add, value, *args)))
+
+    def move_position(self, position, orientation):
+        position = array.array('d', position)
+        orientation = array.array('d', orientation)
+        self.node.get_logger().info(
+            f"Moving to {{position: {list(position)}, quat_xyzw: {list(orientation)}}}"
+        )
+        self.run_actor('move_to_pose', position=position, quat_xyzw=orientation)
+    
+    # move arm and wait until done
+    @actor
+    def move_to_configuration(self, joint_positions):
+        arm = self.get_value('arm')
+        arm.move_to_configuration(joint_positions, joint_names=arm.joint_names)
+        return arm.wait_until_executed()
+    
+    # open gripper
+    @actor
+    def open(self):
+        self.run_actor('open_gripper')
+        self.run_actor('sleep', 2)
+
+    # close gripper
+    @actor
+    def close(self):
+        self.run_actor('close_gripper')
+    
+    @actor
+    def full_close(self):
+        gripper = self.get_value('gripper')
+        goal = GripperCommandAction.Goal()
+        goal.command.position = 0.012
+        goal.command.max_effort = 0.0
+        gripper.move_to_configuration(goal)
+
+        gripper.wait_until_executed()
+        self.run_actor('sleep', 2)
+        return True
+
+    @actor
+    def open_gripper(self):
+        gripper = self.get_value('gripper')
+        gripper.open()
+        gripper.wait_until_executed()
+   
+    @actor
+    def close_gripper(self):
+        gripper = self.get_value('gripper')
+        gripper.close()
+        gripper.wait_until_executed()
+
+    @actor
+    def get_status(self):
+        return {
+            'joint': self.get_value('jstat')
+        }
+    
+    # adjust arm angle
+    @actor
+    def ad(self):
+        x, y, angle = self.run_actor('object_loc')
+        if angle > 0:
+            angle *= adjust_plus
+        else:
+            angle *= adjust_minus
+        jstat = self.run_actor('jstat')
+        cur = []
+        for k in ('joint2','joint3','joint4','joint5','joint6'):
+            cur.append(jstat[k])
+        cur.insert(0,angle)
+#        print(f'adjust.angle:{degrees(angle)}')
+        self.run_actor('move_joint', *cur)
+        self.run_actor('sleep', 1)
+        return True
+    
+    @actor
+    def arm_turn(self, value=0):
+        jstat = self.run_actor('jstat')
+        cur = []
+        for k in ('joint2','joint3','joint4','joint5','joint6'):
+            cur.append(jstat[k])
+        cur.insert(0,value)
+#        print(f'arm_turn.angle:{degrees(angle)}')
+        self.run_actor('move_joint', *cur)
+        self.run_actor('sleep', 1)
+        return True
+
+    @actor
+    def ad0(self):
+        jstat = self.run_actor('jstat')
+        cur = []
+        for k in ('joint2','joint3','joint4','joint5','joint6'):
+            cur.append(jstat[k])
+        cur.insert(0,0.0)
+        self.run_actor('move_joint', *cur)
+        self.run_actor('sleep', 1)
+        return True
+
+    # adjust arm base direction to the center of coke can
+    # when arm down with variable distance
+    @actor
+    def fit(self, assumed_distance=0.15):
+        _, _, angle, distance = self.run_actor('measure_center', assumed=-1)
+        if distance < 0.1:
+            print('could not gain depth')
+            self.run_actor('fit2')
+            return
+        print(f'arm angle: {degrees(angle)}, distance: {distance}')
+        jstat = self.run_actor('jstat')
+        cur = []
+        for k in ('joint2','joint3','joint4','joint5','joint6'):
+            cur.append(jstat[k])
+#        cur.insert(0,angle-radians(0.4))
+        cur.insert(0,angle)
+        print(f'fit: {cur}')
+        self.run_actor('move_joint', *cur)
+        self.run_actor('sleep', 1)
+        return True
+
+    # adjust arm base direction
+    # when arm down and fixed distance (ready for grasp)
+    @actor
+    def fit2(self):
+        jstat = self.run_actor('jstat')
+        cur = []
+        for k in ('joint1', 'joint2','joint3','joint4','joint5','joint6'):
+            cur.append(jstat[k])
+        for _ in range(1):
+            pic_diff, edge = self.run_actor('find_object_pic')
+            off = pic_diff - edge - 0.491
+            print(f'off:{off}')
+            angle = atan2(off, 1) # relative angle of the object from the view point of arm
+            aao = cur[0]
+            aab = -angle * 0.7
+            d = aao - aab
+            if d >= 0:
+                print(f'右 {degrees(d)}度')
+            else:
+                print(f'左 {degrees(-d)}度')
+            cur[0] = aab
+            self.run_actor('move_joint', *cur)
+            self.run_actor('sleep', 3)
+        return True
+    
+    @actor
+    def tf(self):
+        pic_diff, edge = self.run_actor('find_object_pic')
+        off = pic_diff - edge - 0.491
+        print(f'off:{off}')
+        angle = -atan2(off, 1)
+        print(f'angle:{degrees(angle)}')
+
+    # set arm to pick position
+    @actor
+    def pick(self, dir=0.0):
+        '''
+        angle = (0, 90, 0)
+        pos = (0.3, 0.0, 0.05)
+        self.run_actor('arm_pose', pos, list(map(radians, angle)))
+        self.run_actor('sleep', 3.0)
+        return True
+        '''
+        joint = [0.0, 1.75, 1.4, 0.0, -1.6, 0.0]
+#        joint = [0.0, radians(89), radians(84), 0.0, radians(-82), 0.0]
+        joint[0] = dir
+        self.run_actor('move_joint', *joint)
+        return True
+    
+    # set arm to place position
+    @actor
+    def place(self):
+        val = (0.0, 50.0, -33.0, -16.0)
+        self.run_actor('move_joint', *map(radians, val))
+        return self.run_actor('open')
+
+    @actor    
+    def pid(self, *joint_values):
+        arm = self.get_value('arm')        
+        print(f'planner_id:{arm.planner_id}')
+
+    @actor    
+    def pose0(self, *joint_values):
+        angle = (0, 90, 0)
+        pos = (0.098, 0.0, 0.2497)
+        self.run_actor('arm_pose', pos, list(map(radians, angle)))
+    
+    @actor    
+    def pose1(self, *joint_values):
+        angle = (0, 90, 0)
+        pos = (0.3, 0.0, 0.05)
+        self.run_actor('arm_pose', pos, list(map(radians, angle)))
+    
+    @actor
+    def arm_pose(self, pos, angle):       
+        q = quaternion.from_euler_angles(angle)
+        quat_xyzw = (q.x, q.y, q.z, q.w)
+        arm = self.get_value('arm')
+        arm.move_to_pose(position=pos, quat_xyzw=quat_xyzw, cartesian=False)
+        return arm.wait_until_executed()
+
+    @actor
+    def jstat(self):
+        arm = self.get_value('arm')
+        state = arm.joint_state
+        state_dict = dict(zip(state.name, state.position))
+        return state_dict
+        

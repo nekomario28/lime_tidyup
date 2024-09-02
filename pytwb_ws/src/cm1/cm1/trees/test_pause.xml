@@ -1,0 +1,8 @@
+<root>
+    <BehaviorTree ID="test_pause">
+    <Sequence name="main">
+        <Pause is_on="[False]" name="pause"/>
+        <Pause name="pause"/>
+    </Sequence>
+    </BehaviorTree>
+</root>

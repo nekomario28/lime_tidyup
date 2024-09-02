@@ -1,0 +1,14 @@
+<root>
+    <BehaviorTree ID="tc">
+    <Sequence name="main">
+        <Generic actor="find_object" name="find_object"/>
+        <Open name="open"/>
+        <Pick name="pick" /> 
+        <Shift name="shift" target="[0.165]"/>
+        <Sleep name="sleep" time="[3]"/>
+        <Pause name="pause" is_on="[False]"/> 
+        <Fit2 name="fit2"/>
+        <Close name="close"/>
+    </Sequence>
+    </BehaviorTree>
+</root>

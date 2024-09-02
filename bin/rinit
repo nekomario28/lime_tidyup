@@ -1,0 +1,5 @@
+#mkdir -p ~/turtlebot3_ws/src
+#cd ~/turtlebot3_ws && colcon build --symlink-install
+#ins_rest
+cp /project/resource/turtlebot3_lime.urdf.xacro install/turtlebot3_lime_description/share/turtlebot3_lime_description/urdf
+rrev

@@ -1,0 +1,3 @@
+cd ~/turtlebot3_ws
+rosdep install -i --from-path src --rosdistro $ROS_DISTRO --skip-keys=librealsense2 -y
+colcon build --symlink-install

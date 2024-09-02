@@ -1,0 +1,7 @@
+<root>
+    <BehaviorTree ID="test_pause">
+    <Sequence name="main">
+        <Sleep name="sleep3" time="[3]"/>
+    </Sequence>
+    </BehaviorTree>
+</root>
