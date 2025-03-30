@@ -2,17 +2,14 @@ FROM osrf/ros:humble-desktop-full
 SHELL ["/bin/bash", "-c"]
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
- git python3-pip vim xterm less
-
-#RUN apt-get update && apt install -y python3-colcon-common-extensions \
-# ros-humble-py-trees ros-humble-py-trees-ros
+ git python3-pip vim xterm less wget
 
 RUN apt-get update && apt install -y python3-colcon-common-extensions
 
 RUN pip3 uninstall -y numpy
 RUN pip3 install numpy==1.26.4
 RUN pip3 install pyquaternion matplotlib transforms3d simple-pid \
- numpy-quaternion
+ numpy-quaternion pyrealsense2
 
 #RUN pip3 install -U numpy
 
