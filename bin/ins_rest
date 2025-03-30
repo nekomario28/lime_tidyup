@@ -1,5 +1,0 @@
-cd ~/turtlebot3_ws/src
-git clone -b humble-devel https://github.com/ROBOTIS-JAPAN-GIT/turtlebot3_lime.git
-git clone https://github.com/ldrobotSensorTeam/ldlidar_stl_ros2.git
-git clone -b foxy-devel https://github.com/pal-robotics/realsense_gazebo_plugin.git
-cd ~/turtlebot3_ws && colcon build --symlink-install

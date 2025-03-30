@@ -1,2 +1,0 @@
-mkdir -p ~/turtlebot3_ws/src
-cd ~/turtlebot3_ws && colcon build --symlink-install

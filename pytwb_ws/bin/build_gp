@@ -1,3 +1,0 @@
-mkdir -p ~/roscommon/gazebo_ws/src
-cd ~/roscommon/gazebo_ws/src
-git clone -b humble https://github.com/kongoncharuk/gazebo-pkgs

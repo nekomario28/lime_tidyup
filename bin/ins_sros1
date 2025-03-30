@@ -1,6 +1,0 @@
-cd ~/turtlebot3_ws/src
-git clone https://github.com/IntelRealSense/realsense-ros -b 4.55.1
-cd ~/turtlebot3_ws
-apt install -y python3-rosdep
-rosdep init
-rosdep update
