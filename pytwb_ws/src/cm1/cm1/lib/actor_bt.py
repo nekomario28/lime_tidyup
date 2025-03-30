@@ -46,16 +46,18 @@ class SharedData:
 class ActorBT(py_trees.behaviour.Behaviour):
     def __init__(self, name, type, *args):
         super().__init__(name)
+        self.args = args
+        self.type = type
+    
+    def initialise(self):
+        type = self.type
         self.shared = SharedData()
         if isinstance(type, tuple):
             callee = list(type)
         else:
-            callee = [(type, args)]
+            callee = [(type, self.args)]
         self.shared.set_callee(callee)
-        self.type = type
-    
-    def initialise(self):
-        self.logger.info(f'start {self.type}')
+        self.logger.info(f'start {type}')
         self.shared.initialise()
 
     def update(self):
