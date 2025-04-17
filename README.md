@@ -1,26 +1,5 @@
-# ROS application sample with Behavior Tree and ros_actor
-actor_demo is a sample application that shows an example of integrated control of a mobile arm robot. The robot searches for Coke Cans in the maze, picks them using the arm, and transports them to the platform using a pallet.
-
-The purpose of this application sample is to demonstrate the construction of an integrated application that performs complex operations by using the main functions of ROS2 such as Nav2 and MoveIt2.
-
-Another purpose here is to propose strategies that enable people who are not necessarily familiar with building ROS applications, such as students and AI researchers, to build ROS programs quickly. As a key element for this purpose, we will use the Python language, and
-- Behavior Tree,
-- ros_actor.
-
-ros_actor is a newly developed small-scale middleware for ROS that uses an actor-like programming model to make it easier to write difficult real-time processing programs that use a lot of callbacks.
-
-ros_actor can work closely with py_trees, a Python implementation of Behavior Tree. Behavior Tree makes it easy to build the global structure of real-time programs through polling performed by each behavior. In addition to this mechanism, ros_actor allows to implement local real-time programs without sacrificing real-time performance and make them available from Behavior Tree. By doing so, they have a complementary relationship.
-
-This approach makes it possible to build complex ROS applications in a structured manner to be used for
-- Education,
-- AI research using robots,
-- Quick prototyping in robot business.
-
-The entire program of this sample runs as a single docker and operates by entering simple commands. It is recommended to operate from VSCode.
-
-## Demo video
-
-[![](https://img.youtube.com/vi/c1s3RkVEzrY/0.jpg)](https://www.youtube.com/watch?v=c1s3RkVEzrY)
+# Turtlebot3 Lime application sample with Behavior Tree and ros_actor
+This repository contains demo code for Lime, the next generation TurtleBot3 with a Jetson GPU and a 6-DOF manipulator, running in a single PC environment using Docker.
 
 ## Installation
 - Go to working directory of any location
@@ -28,8 +7,8 @@ The entire program of this sample runs as a single docker and operates by enteri
 
 ```
 $ printenv DISPLAY # for checking DISPLAY environment variable
-$ git pull http://192.168.128.23/ktago/mylimesimul.git
-$ cd mylimesimul
+$ git pull https://github.com/momoiorg-repository/LimeSimulDemo.git
+$ cd LimeSimulDemo
 $ docker compose build
 $ docker compose up
 ```
