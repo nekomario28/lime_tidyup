@@ -59,7 +59,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
  ros-humble-dynamixel-sdk ros-humble-ros2-control ros-humble-ros2-controllers ros-humble-gripper-controllers \
- ros-humble-moveit ros-humble-cartographer \ 
+ ros-humble-moveit ros-humble-moveit-servo ros-humble-cartographer \ 
  ros-humble-realsense2-description \
  ros-humble-cartographer-ros ros-humble-gripper-controllers \
  ros-humble-tf-transformations

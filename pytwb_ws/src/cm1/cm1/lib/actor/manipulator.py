@@ -4,26 +4,34 @@ from math import radians, atan2, degrees, pi
 import numpy as np
 import quaternion
 from simple_pid.pid import PID
+from time import sleep
 
 from control_msgs.action import GripperCommand as GripperCommandAction
 
 from ros_actor import actor, SubNet
+from pymoveit2 import MoveIt2State
 
 adjust_plus = 1.1  
 adjust_minus = 1.25
+
+def wait_until_executed(arm):
+    while(arm.query_state() != MoveIt2State.IDLE):
+        sleep(0.5)
 
 class ManipulatorNetwork(SubNet):
     # set to home position
     @actor
     def home(self):
-        '''
-        angle = (0, 90, 0)
-        pos = (0.3, 0.0, 0.15)
-        self.run_actor('arm_pose', pos, list(map(radians, angle)))
-        '''
 #        joint = [0.0, 1.0, 1.575, 0.0, -1.0, 0.0]
         joint = [0.0, radians(23), radians(80), 0.0, -radians(14), 0.0]
         self.run_actor('move_joint', *joint)
+        return True
+
+    @actor
+    def pos_home(self):
+        angle = (0, 90, 0)
+        pos = (0.3, 0.0, 0.15)
+        self.run_actor('arm_pose', pos, list(map(radians, angle)))
         return True
         
     @actor
@@ -76,18 +84,22 @@ class ManipulatorNetwork(SubNet):
     def move_to_configuration(self, joint_positions):
         arm = self.get_value('arm')
         arm.move_to_configuration(joint_positions, joint_names=arm.joint_names)
-        return arm.wait_until_executed()
+        wait_until_executed(arm)
+        return True         
+#        return arm.wait_until_executed() # Never use this
     
     # open gripper
     @actor
     def open(self):
         self.run_actor('open_gripper')
         self.run_actor('sleep', 2)
+        return True
 
     # close gripper
     @actor
     def close(self):
         self.run_actor('close_gripper')
+        return True
     
     @actor
     def full_close(self):
@@ -96,8 +108,7 @@ class ManipulatorNetwork(SubNet):
         goal.command.position = 0.012
         goal.command.max_effort = 0.0
         gripper.move_to_configuration(goal)
-
-        gripper.wait_until_executed()
+        wait_until_executed(gripper)
         self.run_actor('sleep', 2)
         return True
 
@@ -105,13 +116,15 @@ class ManipulatorNetwork(SubNet):
     def open_gripper(self):
         gripper = self.get_value('gripper')
         gripper.open()
-        gripper.wait_until_executed()
+        wait_until_executed(gripper)
+        return True
    
     @actor
     def close_gripper(self):
         gripper = self.get_value('gripper')
         gripper.close()
-        gripper.wait_until_executed()
+        wait_until_executed(gripper)
+        return True
 
     @actor
     def get_status(self):
@@ -213,6 +226,7 @@ class ManipulatorNetwork(SubNet):
         print(f'off:{off}')
         angle = -atan2(off, 1)
         print(f'angle:{degrees(angle)}')
+        return True
 
     # set arm to pick position
     @actor
@@ -241,18 +255,21 @@ class ManipulatorNetwork(SubNet):
     def pid(self, *joint_values):
         arm = self.get_value('arm')        
         print(f'planner_id:{arm.planner_id}')
+        return True
 
     @actor    
     def pose0(self, *joint_values):
         angle = (0, 90, 0)
         pos = (0.098, 0.0, 0.2497)
         self.run_actor('arm_pose', pos, list(map(radians, angle)))
+        return True
     
     @actor    
     def pose1(self, *joint_values):
         angle = (0, 90, 0)
         pos = (0.3, 0.0, 0.05)
         self.run_actor('arm_pose', pos, list(map(radians, angle)))
+        return True
     
     @actor
     def arm_pose(self, pos, angle):       
@@ -260,7 +277,8 @@ class ManipulatorNetwork(SubNet):
         quat_xyzw = (q.x, q.y, q.z, q.w)
         arm = self.get_value('arm')
         arm.move_to_pose(position=pos, quat_xyzw=quat_xyzw, cartesian=False)
-        return arm.wait_until_executed()
+        wait_until_executed(arm)
+        return True
 
     @actor
     def jstat(self):

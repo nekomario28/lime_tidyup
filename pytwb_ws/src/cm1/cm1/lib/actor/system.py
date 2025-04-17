@@ -176,8 +176,8 @@ class Tb3CameraSystem(SubSystem):
     def __init__(self, name, parent):
         super().__init__(name, parent)
         self.set_value('cv_bridge', CvBridge())
-        self.register_subscriber('pic',Image,"/color/image_raw",10)
-        self.register_subscriber('depth',Image,"/depth/image_raw",10)
+        self.register_subscriber('pic',Image,"/camera/camera/color/image_raw",10)
+        self.register_subscriber('depth',Image,"/camera/camera/depth/image_rect_raw",10)
         self.add_network(CognitiveNetwork)
 
 class Tb3ManipulatorSystem(SubSystem):
