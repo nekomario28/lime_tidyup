@@ -8,7 +8,7 @@ class GetLocation(py_trees.behaviour.Behaviour):
     desc = 'Gets a location pose from the pose list'
 
     def __init__(self, name):
-        super(GetLocation, self).__init__(name)
+        super().__init__(name)
         self.bb = py_trees.blackboard.Blackboard()
 
     def update(self):
@@ -39,6 +39,7 @@ class GoToPose(ActorBT):
         self.bb = py_trees.blackboard.Blackboard()
     
     def initialise(self):
+        super().prepare()
         target_pose = None
         # Check if there is a pose available in the blackboard
         if self.bb.exists("target_pose"):
@@ -49,5 +50,5 @@ class GoToPose(ActorBT):
         if not target_pose:
             return
         self.shared.set_callee([('goto', (x, y, theta))])
-        super().initialise()
+        self.run()
     
