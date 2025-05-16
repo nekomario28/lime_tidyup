@@ -70,7 +70,7 @@ class ApproachAction(SubNet):
             if speed < 0.5:
                 if control > 0: control *= 1.05
                 if abs(diff_angle) > radians(0.5):
-                    print(f'stop and adjust body angle:{degrees(diff_angle)},{control}')
+#                    print(f'stop and adjust body angle:{degrees(diff_angle)},{control}')
                     self.run_actor('sleep', 0.03)
                     adj_flag = True
             self.move(speed, control)
@@ -230,7 +230,7 @@ class ApproachAction(SubNet):
         for _ in range(8):
             self.run_actor('sleep', 3)
             coke = self.run_actor('coke_getter')
-            if coke: return True
+            if coke[0] >= 0: return True
             print('turn to recover')
             self.run_actor('mini_turn', 45)
         return False

@@ -1,10 +1,11 @@
+import numbpy as np
 from math import radians, atan2, degrees, sqrt, isinf
 
 from ros_actor import actor, SubNet
 from lib.pointlib import PointEx, PointBag
-from lib.simlib import find_coke
 
 import cv2
+import pyrealsense2 as rs
 
 class CognitiveNetwork(SubNet):
     @actor
@@ -175,19 +176,12 @@ class CognitiveNetwork(SubNet):
         x, y = self.pix_to_coordinate(index, distance, depth_image)
         angle = atan2(y, x)
         return angle, distance
-    
-    def pix_to_coordinate(self, pix, distance, depth_image):
-        # get horizontal coordinate (y) from camera data
-        # coke can position by camera coordinate target_x: depth, target_y: horizontal pos
-        pix = self.pic_shape[1] / 2 - pix # Pixel value in the horizontal direction with the center at 0
-#        pix = 313 - pix # Pixel value in the horizontal direction with the center at 0
-        lp = 900 # base line length by pixel
-#        lp = 500 # base line length by pixel
-        mag = distance / sqrt(pix**2 + lp**2)
-        y = pix * mag * 2
-        x = lp * mag
-        return x, y
 
+    def pix_to_coordinate(self, x, y, distance):
+        intrinsics = self.get_value('intrinsics')
+        p = rs.rs2_deproject_pixel_to_point(intrinsics,[x,y], distance)
+        return p[2],-p[0]
+    
     def pic_to_depth(self, yp, zp):
         loc_z = zp / self.pic_shape[1] * self.depth_shape[1]
         loc_y = yp / self.pic_shape[0] * self.depth_shape[0]
@@ -206,13 +200,13 @@ class CognitiveNetwork(SubNet):
         yp = center[0] # by pic cell
         zp = center[1] # by pic cell
         self.depth_shape = depth_image.shape
-        yp, zp = self.adjust(yp, zp, self.depth_shape)
-        distance = depth_image[zp][yp] / 1000
+        rel_yp, rel_zp = self.adjust(yp, zp, self.depth_shape)
+        distance = depth_image[rel_zp][rel_yp] / 1000
         if isinf(distance): return None
         if distance == 0:
             print('find_object zero distance')
             distance = 0.2
-        target_x, target_y = self.pix_to_coordinate(yp, distance, depth_image)        
+        target_x, target_y = self.pix_to_coordinate(yp, zp, distance)        
         point = PointEx(target_x, target_y)
         point.v_x = target_x
         point.distance = distance 
@@ -230,9 +224,9 @@ class CognitiveNetwork(SubNet):
         yp = center[0] # by pic cell
         zp = center[1] # by pic cell
         self.depth_shape = depth_image.shape
-        yp, zp = self.adjust(yp, zp, self.depth_shape)
+        rel_yp, rel_zp = self.adjust(yp, zp, self.depth_shape)
         mid_y = self.depth_shape[1] // 2
-        target_rate = yp / mid_y
+        target_rate = rel_yp / mid_y
         det_line = depth_image[180]
         for i, v in enumerate(det_line):
             if v == 0: break
@@ -245,17 +239,18 @@ class CognitiveNetwork(SubNet):
         ret = None
         with self.run_actor_mode('pic_receiver', 'timed_iterator', 10) as pic_iter:
             for cv_image in pic_iter:
-                ret = find_coke(cv_image)
-                if ret:
+                ret = self.find_coke(cv_image)
+                if ret[0] >= 0:
                     self.cv_image = cv_image
                     self.pic_shape = cv_image.shape
                     break
+        if ret[0] < 0: return None
         return ret
     
     @actor
     def coke_getter(self):
         cv_image = self.run_actor('pic_receiver')
-        return find_coke(cv_image)
+        return self.find_coke(cv_image)
         
     # get raw RGB image
     @actor('pic_receiver', 'multi')
@@ -291,13 +286,12 @@ class CognitiveNetwork(SubNet):
         yp = center[0] # by pic cell
         zp = center[1] # by pic cell
         self.depth_shape = depth_image.shape
-        s = self.depth_shape
-        print(f'shape_y:{s[1]}, shape_z:{s[0]}')
-        print(f'find_object yp:{yp}, zp:{zp}')
+#        s = self.depth_shape
+#        print(f'shape_y:{s[1]}, shape_z:{s[0]}')
+#        print(f'find_object yp:{yp}, zp:{zp}')
 
-        yp, zp = self.adjust(yp, zp, self.depth_shape)
-#        distance = depth_image[zp+4][yp-17] / 1000
-        distance = depth_image[zp][yp] / 1000
+        rel_yp, rel_zp = self.adjust(yp, zp, self.depth_shape)
+        distance = depth_image[rel_zp][rel_yp] / 1000
         if isinf(distance): return None
         radius = 20
         color = (0, 255, 0)
@@ -310,5 +304,30 @@ class CognitiveNetwork(SubNet):
         point = PointEx(target_x, target_y)
         point.v_x = target_x
         point.distance = distance 
-        print(f'find_object x:{target_x}, y:{target_y}, distance:{distance}')
+#        print(f'find_object x:{target_x}, y:{target_y}, distance:{distance}')
         return point
+    
+    def find_coke(self, cv_img):
+        hsv_img = cv2.cvtColor(cv_img, cv2.COLOR_BGR2HSV)
+
+        hsv_min = np.array([150, 70, 0])
+        hsv_max = np.array([180,255,255])
+        m1 = cv2.inRange(hsv_img, hsv_min, hsv_max)
+
+#        hsv_min = np.array([0, 70, 0])
+#        hsv_max = np.array([30,255,255])
+#        m2 = cv2.inRange(hsv_image, hsv_min, hsv_max)
+
+        mask = m1
+
+        cv_img  = cv2.bitwise_and(cv_img, cv_img, mask = mask)
+
+        bw_img = cv2.cvtColor(cv_img, cv2.COLOR_BGR2GRAY)
+        m = cv2.moments(bw_img, True)
+        w = m["m00"]
+        x = m["m10"]
+        y = m["m01"]
+        if w == 0:
+            return -1, -1
+        else:
+            return int(x / w), int(y / w)   

@@ -15,7 +15,7 @@ from tf2_ros.buffer import Buffer
 from tf2_ros import TransformException
 from tf2_ros.transform_listener import TransformListener
 from nav2_msgs.action import NavigateToPose
-from sensor_msgs.msg import Image
+from sensor_msgs.msg import Image, CameraInfo
 from geometry_msgs.msg import Twist
 from action_msgs.msg import GoalStatus
 from nav_msgs.msg import OccupancyGrid
@@ -24,6 +24,7 @@ from nav_msgs.msg import Odometry
 import transforms3d
 from pymoveit2 import MoveIt2, GripperInterface
 from vector_map import get_map, get_map_ROS, SimulationSpace, init_visualize
+import pyrealsense2 as rs
 
 from ros_actor import actor, SubSystem
 from .approach_action import ApproachAction
@@ -178,7 +179,20 @@ class Tb3CameraSystem(SubSystem):
         self.set_value('cv_bridge', CvBridge())
         self.register_subscriber('pic',Image,"/camera/camera/color/image_raw",10)
         self.register_subscriber('depth',Image,"/camera/camera/depth/image_rect_raw",10)
+        self.register_subscriber('camera_info',CameraInfo,"/camera/camera/color/camera_info",10)
         self.add_network(CognitiveNetwork)
+    
+    @actor
+    def init_realsense(self):
+        info_mes = self.run_actor('camera_info')
+        it = rs.intrinsics()
+        it.width = info_mes.width
+        it.height = info_mes.height
+        it.fx = info_mes.k[0]
+        it.ppx = info_mes.k[2]
+        it.fy = info_mes.k[4]
+        it.ppy = info_mes.k[5]
+        self.set_value('intrinsics', it)
 
 class Tb3ManipulatorSystem(SubSystem):
     def __init__(self, name, parent):

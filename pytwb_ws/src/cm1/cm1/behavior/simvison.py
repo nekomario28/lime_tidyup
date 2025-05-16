@@ -50,9 +50,10 @@ class LookForCoke(py_trees.behaviour.Behaviour):
         self.node = node
         self.bb = py_trees.blackboard.Blackboard()
         self.debug = debug
+        self.tran = None
 
     def initialise(self):
-        run_actor_async('object_glance', self.actor_callback)
+        self.tran = run_actor_async('object_glance', self.actor_callback)
         self.logger.info("start looking for coke")
 
     def update(self):
@@ -65,15 +66,15 @@ class LookForCoke(py_trees.behaviour.Behaviour):
         return py_trees.common.Status.SUCCESS
     
     def actor_callback(self, candidate):
-        if not candidate:
-            print('LookForCoke call again')
-            run_actor_async('object_glance', self.actor_callback)        
+        if not candidate: return
         self.target = PointEx(candidate)
     
     def terminate(self, new_status):
         if self.target:
             self.logger.info(f"found at x:{self.target.x} y:{self.target.y}")
         else:
+            if self.tran:
+                self.tran.abort(self.tran)
             self.logger.info(f"Terminated {new_status}")
     
 class ResPoint:

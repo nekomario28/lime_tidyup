@@ -18,7 +18,7 @@ class SharedData:
     def execute(self):
         type, args = self.callee.pop(0)
         if not args: args = ()
-        run_actor_async(type, self.actor_callback, *args)
+        self.tran = run_actor_async(type, self.actor_callback, *args)
         
     def actor_callback(self, result):
         has_next = False
@@ -42,6 +42,9 @@ class SharedData:
         with self.sem:
             self.status = py_trees.common.Status.RUNNING
         self.execute()
+    
+    def close(self):
+        self.tran.abort(self.tran)
 
 class ActorBT(py_trees.behaviour.Behaviour):
     def __init__(self, name, type, *args):
@@ -70,6 +73,7 @@ class ActorBT(py_trees.behaviour.Behaviour):
         return self.shared.get_status()          
 
     def terminate(self, new_status):
+        self.shared.close()
         return
 #        self.logger.info(f"Terminated with status {new_status}")
 
