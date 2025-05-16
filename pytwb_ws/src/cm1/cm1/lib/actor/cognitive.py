@@ -1,4 +1,4 @@
-import numbpy as np
+import numpy as np
 from math import radians, atan2, degrees, sqrt, isinf
 
 from ros_actor import actor, SubNet
