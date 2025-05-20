@@ -28,7 +28,7 @@ Y
 The installation is now complete.
 
 ## Demo Code Execution
-[searching Coke Can](doc/demo.mp4)
+<video src="doc/demo.mp4" controls="true"></video>
 
 - Launching the simulation environment
 

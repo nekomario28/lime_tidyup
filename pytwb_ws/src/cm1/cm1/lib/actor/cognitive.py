@@ -131,8 +131,9 @@ class CognitiveNetwork(SubNet):
         data = self.run_actor('depth')
         cv_bridge = self.get_value('cv_bridge')
         depth_image = cv_bridge.imgmsg_to_cv2(data)
-        det_line = depth_image[-220]
-        index = det_line.argmin()# + 19
+        index = len(depth_image) - 220
+        det_line = depth_image[index]
+        index = det_line.argmin()
         distance = det_line[index] / 1000
         actual_distance = distance
         center = self.run_actor('pic_find')
@@ -150,7 +151,7 @@ class CognitiveNetwork(SubNet):
             log['index'] = index
             log['distance'] = distance
         if index == 0: print('index 0!!!')
-        x, y = self.pix_to_coordinate(index, distance, depth_image)
+        x, y = self.pix_to_coordinate(index, zp, distance)
         dangle = atan2(y, x)
         if log != None:
             log['_y'] = y
