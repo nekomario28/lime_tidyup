@@ -28,7 +28,10 @@ Y
 The installation is now complete.
 
 ## Demo Code Execution
-<video src="doc/demo.mp4" controls="true"></video>
+
+
+https://github.com/user-attachments/assets/d8400567-b3ed-41d0-9b63-0da5fb4651f3
+
 
 - Launching the simulation environment
 
