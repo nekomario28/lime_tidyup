@@ -197,26 +197,15 @@ class ManipulatorNetwork(SubNet):
     # adjust arm base direction
     # when arm down and fixed distance (ready for grasp)
     @actor
-    def fit2(self):
+    def fit2(self, distance):
         jstat = self.run_actor('jstat')
         cur = []
         for k in ('joint1', 'joint2','joint3','joint4','joint5','joint6'):
             cur.append(jstat[k])
-        for _ in range(1):
-            pic_diff, edge = self.run_actor('find_object_pic')
-            off = pic_diff - edge - 0.491
-            print(f'off:{off}')
-            angle = atan2(off, 1) # relative angle of the object from the view point of arm
-            aao = cur[0]
-            aab = -angle * 0.7
-            d = aao - aab
-            if d >= 0:
-                print(f'右 {degrees(d)}度')
-            else:
-                print(f'左 {degrees(-d)}度')
-            cur[0] = aab
-            self.run_actor('move_joint', *cur)
-            self.run_actor('sleep', 3)
+        _,_,target_angle,_ = self.run_actor('measure_center2', assumed=distance)
+        cur[0] = target_angle
+        self.run_actor('move_joint', *cur)
+        self.run_actor('sleep', 3)
         return True
     
     @actor

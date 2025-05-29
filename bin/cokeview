@@ -1,0 +1,96 @@
+#!/usr/bin/python3
+import rclpy
+from rclpy.node import Node
+from sensor_msgs.msg import Image
+import cv2
+from cv_bridge import CvBridge
+import numpy as np
+
+# カメラの画像データの表示クラス
+class TestCamera(Node):
+    def __init__(self):
+        super().__init__('test_camera')
+        self.depth_data = None
+        # サブスクライブの準備
+        self.camera = self.create_subscription(Image, '/camera/camera/color/image_raw', self.camera_callback, 10)
+        # 深度データのサブスクライブの準備
+        self.depth = self.create_subscription(Image, '/camera/camera/depth/image_rect_raw', self.depth_callback, 10)
+
+        # ROSプログラムからOpenCVを利用できるようにする
+        self.cv = CvBridge()
+        cv2.namedWindow('robot view', cv2.WINDOW_NORMAL)
+        cv2.resizeWindow('robot view', 1200, 900)
+    
+    # １画面分のメッセージのサブスクライブ時に呼ばれるコールバックメソッド
+    def camera_callback(self, img):
+        # データ表現の変換
+        cv_img = self.cv.imgmsg_to_cv2(img, 'bgr8')
+        x, y, c = self.find_coke(cv_img)
+
+        # 画像の表示
+        width = len(cv_img[0])
+        center = width // 2
+        height = len(cv_img)
+        if x > 0:
+            cv2.circle(cv_img, (x,y), 5, (255,0,0))
+            if c > 0: cv2.circle(cv_img, (c, height-200), 5, (0,0,255))
+        cv2.line(cv_img, (center, 0), (center, height-1), (0,255,0))
+        cv2.line(cv_img, (0, height-220), (width-1, height-220), (0,255,0))
+        cv2.imshow('robot view', cv_img)
+        cv2.waitKey(1)
+    
+    # 深度データのサブスクライブのコールバックメソッド
+    def depth_callback(self, img):
+        self.depth_data = self.cv.imgmsg_to_cv2(img, 'passthrough')
+    
+    def find_coke(self, cv_img):
+        hsv_img = cv2.cvtColor(cv_img, cv2.COLOR_BGR2HSV)
+
+        hsv_min = np.array([150, 70, 0])
+        hsv_max = np.array([180,255,255])
+        m1 = cv2.inRange(hsv_img, hsv_min, hsv_max)
+
+#        hsv_min = np.array([0, 70, 0])
+#        hsv_max = np.array([30,255,255])
+#        m2 = cv2.inRange(hsv_image, hsv_min, hsv_max)
+
+        mask = m1
+
+        cv_img  = cv2.bitwise_and(cv_img, cv_img, mask = mask)
+
+        bw_img = cv2.cvtColor(cv_img, cv2.COLOR_BGR2GRAY)
+        
+        m = cv2.moments(bw_img, True)
+        w = m["m00"]
+        x = m["m10"]
+        y = m["m01"]
+        if w == 0:
+            return -1, -1, 0
+        else:
+            d = self.depth_data
+            if d is None: return -1, -1, 0 
+            det_index = len(d) - 200
+            depth_line = d[det_index]
+            min_index = 600
+            max_index = 0
+            found = False
+            center = -1
+            for i, v in enumerate(depth_line):
+                if v > 300: continue
+                if i < min_index: min_index = i
+                if i > max_index: max_index = i
+                found = True
+            if found:
+                center = int((min_index + max_index) / 2)
+                print(f'center:{center}, min:{min_index}, max:{max_index}')
+            else:
+                center  -1
+            return int(x / w), int(y / w), center   
+
+
+if __name__ == '__main__':   
+    rclpy.init()
+    test_camera = TestCamera()
+    rclpy.spin(test_camera)
+    test_camera.destroy_node
+    rclpy.shutdown()

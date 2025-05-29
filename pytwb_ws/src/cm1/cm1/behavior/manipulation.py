@@ -22,8 +22,8 @@ class Fit(ActorBT):
 class Fit2(ActorBT):
     desc = 'adjust arm angle after gripper down'
 
-    def __init__(self, name, node):
-        super().__init__(name, 'fit2')
+    def __init__(self, name, node, distance):
+        super().__init__(name, 'fit2', distance)
         
 @behavior
 class Pick(ActorBT):

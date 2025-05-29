@@ -13,7 +13,7 @@
         <Pause name="pause" is_on="[False]"/>
         <Shift name="shift" target="[0.175]"/>
         <Sleep name="sleep" time="[3]"/>
-        <Fit2 name="fit2"/>
+        <Fit2 name="fit2" distance="[0.175]"/>
         <Close name="close"/>
         <ArmHome name="home"/>
     </Sequence>
