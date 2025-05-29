@@ -85,47 +85,6 @@ class CognitiveNetwork(SubNet):
         depth_tran = self.run_actor_mode('depth', 'multi', stub)
         return ('close', lambda tran: depth_tran.close(depth_tran)),
 
-    '''
-    # detect can center
-    @actor
-    def measure_center(self, target='link1', assumed=0.25, log=None):
-        data = self.run_actor('depth')
-        cv_bridge = self.get_value('cv_bridge')
-        depth_image = cv_bridge.imgmsg_to_cv2(data)
-        det_line = depth_image[-220]
-        index = det_line.argmin()# + 19
-        distance = det_line[index] / 1000
-        actual_distance = distance
-        if distance < 0.1:
-            center = self.run_actor('pic_find')
-            yp = center[0] # by pic cell
-            zp = center[1] # by pic cell
-#            print(f'yp:{yp},zp:{zp}')
-#            yp, zp = self.adjust(yp, zp, self.depth_shape)
-            if not center: return 0, 0, 0, 0
-            if assumed > 0:
-                distance = assumed
-            else: return 0, 0, 0, -1
-            index = yp
-            if log != None: log['assumed'] = True
-        else:
-            if log != None: log['assumed'] = False
-        if log != None:
-            log['index'] = index
-            log['distance'] = distance
-        if index == 0: print('index 0!!!')
-#        print(f'measure_center.index:{index}, distance]{distance}')
-        x, y = self.pix_to_coordinate(index, distance, depth_image)
-        dangle = atan2(y, x)
-        point = PointEx(x,y)
-        trans = self.run_actor('var_trans', target)
-        point.setTransform(trans.transform)
-#        angle = atan2(point.y, point.x) + radians(2.2)
-        angle = atan2(point.y, point.x)
-#        print(f'angle:{degrees(angle)}, distance:{distance}')
-        return point.x, point.y, angle, actual_distance
-    '''
-    
     @actor
     def measure_center(self, target='link1', assumed=0.25, log=None):
         data = self.run_actor('depth')
@@ -152,17 +111,48 @@ class CognitiveNetwork(SubNet):
             log['distance'] = distance
         if index == 0: print('index 0!!!')
         x, y = self.pix_to_coordinate(index, zp, distance)
-        dangle = atan2(y, x)
+        angle = atan2(y, x+0.07)
         if log != None:
             log['_y'] = y
-            log['dangle'] = dangle
-        point = PointEx(x,y)
-        trans = self.run_actor('var_trans', target)
-        point.setTransform(trans.transform)
+            log['y'] = y
+            log['dangle'] = angle
+        return x, y, angle, actual_distance
+
+    @actor
+    def measure_center2(self, assumed=0.25, log=None):
+        data = self.run_actor('depth')
+        cv_bridge = self.get_value('cv_bridge')
+        depth_image = cv_bridge.imgmsg_to_cv2(data)
+        zp = len(depth_image) - 200
+        det_line = depth_image[zp]
+        d_index = det_line.argmin()
+        distance = det_line[d_index] / 1000
+        mes_distance = distance
+        min_index = 600
+        max_index = 0
+        for i, v in enumerate(det_line):
+            if v > 300: continue
+            if i < min_index: min_index = i
+            if i > max_index: max_index = i
+        index = int((min_index + max_index) / 2)
+        if distance < 0.1:
+            if assumed > 0:
+                distance = assumed
+            else: return 0, 0, 0, -1
+            if log != None: log['assumed'] = True
+        else:
+            if log != None: log['assumed'] = False
         if log != None:
-            log['y'] = point.y
-        angle = atan2(point.y, point.x)
-        return point.x, point.y, angle, actual_distance
+            log['index'] = index
+            log['distance'] = distance
+        if index == 0: print('index 0!!!')
+        x, y = self.pix_to_coordinate(index, zp, distance)
+        angle = atan2(y, x+0.07)
+        if log != None:
+            log['_y'] = y
+            log['y'] = y
+            log['dangle'] = angle
+        return x, y, angle, mes_distance
 
     # detect can center
     @actor

@@ -41,7 +41,7 @@ class ApproachAction(SubNet):
     
     # navigation with visual feedback
     @actor
-    def targetted_walk(self, len, fname="control.csv", speed=1.0, off=0.0):
+    def targetted_walk(self, len, fname="control.csv", speed=1.0):
         count = 0
         f = open(fname, mode="w")
         start_x, start_y, _ = self.get_odom()
@@ -50,6 +50,7 @@ class ApproachAction(SubNet):
         if speed > 0.5:
             pid = PID(-10, 0, -0.25,
                     output_limits=(radians(-80),radians(80)))
+            print('PID,-10,0,-0.25', file=f)
         else:
             pid = PID(-10, 0, -0.05,
                     output_limits=(radians(-80),radians(80)))
@@ -66,13 +67,11 @@ class ApproachAction(SubNet):
             
             diff_angle = target_angle
             control = pid(diff_angle)
-            adj_flag = False
             if speed < 0.5:
-                if control > 0: control *= 1.05
+                control *= 1.05
                 if abs(diff_angle) > radians(0.5):
 #                    print(f'stop and adjust body angle:{degrees(diff_angle)},{control}')
                     self.run_actor('sleep', 0.03)
-                    adj_flag = True
             self.move(speed, control)
 
             d_x = x - start_x
@@ -83,11 +82,50 @@ class ApproachAction(SubNet):
                 assumed = distance
             else:
                 assumed = assumed - (current - last_current)
-            print(f'{degrees(diff_angle)},{-degrees(control)},{log["index"]},{distance},{assumed - (current - last_current)},{log["_y"]},{log["y"]},{str(log["assumed"])},{str(adj_flag)}', file=f)
+            print(f'{degrees(diff_angle)},{-degrees(control)},{log["index"]},{distance},{assumed - (current - last_current)},{log["_y"]},{log["y"]},{str(log["assumed"])}', file=f)
             f.flush()
             if assumed < len:
-#                self.move(-1)
-#                self.run_actor('sleep', 0.05)
+                self.move(0)
+                f.close()
+                return target_angle
+            count += 1
+    
+    # final approach to the coke
+    @actor
+    def targetted_walk_armdown(self, len, fname="shift.csv", speed=0.25):
+        count = 0
+        f = open(fname, mode="w")
+        start_x, start_y, _ = self.get_odom()
+        assumed = -1
+        current = 0
+        pid = PID(-15, 0, -0.05,
+            output_limits=(radians(-80),radians(80)))
+        print('PID,-15,0,-0.05', file=f)
+
+        while True:
+            log = {}
+            _,_,target_angle,distance = self.run_actor('measure_center2', assumed=assumed,log=log)
+            if distance < 0:
+                print('could not get distance value. give up')
+                return
+            
+            x, y, _ = self.get_odom()
+            
+            diff_angle = target_angle
+            control = pid(diff_angle) * 1.05
+            self.move(speed, control)
+
+            d_x = x - start_x
+            d_y = y - start_y
+            last_current = current
+            current = sqrt(d_x**2 + d_y**2)
+            if distance > 0:
+                assumed = distance
+            else:
+                assumed = assumed - (current - last_current)
+            print(f'{degrees(diff_angle)},{-degrees(control)},{log["index"]},{distance},{assumed - (current - last_current)},{log["_y"]},{log["y"]},{str(log["assumed"])}', file=f)
+            f.flush()
+            if assumed < len:
                 self.move(0)
                 f.close()
                 return target_angle
@@ -109,12 +147,6 @@ class ApproachAction(SubNet):
             sleep_time = len*0.1 + 0.5
         self.run_actor('sleep', sleep_time)
         self.move(0)
-    
-    # debugging tool
-    @actor
-    def dc(self):
-        x, y, _, distance = self.run_actor('measure_center', 'map')
-        print(f'x:{x}, y:{y}')
         
     # adjust location
     @actor
@@ -145,7 +177,7 @@ class ApproachAction(SubNet):
         trans = self.run_actor('map_trans')
         start = PointEx(0.0, 0.0)
         start.setTransform(trans.transform)
-        target_angle = self.run_actor('targetted_walk', target, "shift_control.csv", 0.25)
+        target_angle = self.run_actor('targetted_walk_armdown', target, "shift_control.csv", 0.25)
         self.run_actor('sleep', 3)
         trans = self.run_actor('map_trans')
         actual = PointEx(0.0, 0.0)
@@ -208,10 +240,6 @@ class ApproachAction(SubNet):
     def adjust_body_angle(self):
         for _ in range(30):
             pl, _ = self.run_actor('find_object_pic')
-#            print(f'face.pl:{pl}')
-#            if abs(pl-1.0) < 0.05:
-#                self.move(0)
-#                return
             if pl > 1.3: # turn right
                 self.move(0, -0.5)
             elif pl > 1.0:
@@ -220,7 +248,6 @@ class ApproachAction(SubNet):
                 self.move(0, 0.5)
             else:
                 self.move(0, 0.25)
-#            self.run_actor("sleep", 0.5)
         self.move(0)
         return
 
