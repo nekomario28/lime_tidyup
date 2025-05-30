@@ -2,7 +2,7 @@ FROM osrf/ros:humble-desktop-full
 SHELL ["/bin/bash", "-c"]
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
- git python3-pip vim xterm less wget
+ git python3-pip vim eog xterm less wget
 
 RUN apt-get update && apt install -y python3-colcon-common-extensions
 
@@ -47,11 +47,13 @@ WORKDIR /root
 RUN echo "source /opt/ros/humble/setup.bash" >> .bashrc
 RUN echo "source /project/lib_ws/install/setup.bash" >> .bashrc
 RUN echo "source /usr/share/gazebo/setup.sh" >> .bashrc
+RUN echo "source ~/turtlebot3_ws/install/setup.bash" >> .bashrc
 RUN echo "export ROS_LOCALHOST_ONLY=1" >> .bashrc
 RUN echo "export GAZEBO_PLUGIN_PATH=$GAZEBO_PLUGIN_PATH:/project/lib_ws/build/gazebo_grasp_plugin" >> .bashrc
 RUN echo "export RMW_IMPLEMENTATION=rmw_cyclonedds_cpp" >> .bashrc
 RUN echo 'export GAZEBO_MODEL_PATH=$GAZEBO_MODEL_PATH:/opt/ros/humble/share/turtlebot3_gazebo/models' >> .bashrc
 RUN echo 'PATH=$PATH:/root/bin' >> .bashrc
+
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
  ros-humble-rmw-cyclonedds-cpp \
