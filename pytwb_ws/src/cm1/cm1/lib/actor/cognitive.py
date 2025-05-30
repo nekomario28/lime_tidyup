@@ -255,7 +255,7 @@ class CognitiveNetwork(SubNet):
                 print(e)
             return callback(cv_image)
         pic_tran = self.run_actor_mode('pic', 'multi', stub)
-        return ('close', lambda tran: pic_tran.close(pic_tran)),
+        return ('close', lambda tran: pic_tran.close()),
 
     def adjust(self, yp, zp, size):
         mid_y = size[1] // 2
