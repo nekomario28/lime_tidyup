@@ -82,7 +82,7 @@ class TestCamera(Node):
                 found = True
             if found:
                 center = int((min_index + max_index) / 2)
-                print(f'center:{center}, min:{min_index}, max:{max_index}')
+#                print(f'center:{center}, min:{min_index}, max:{max_index}')
             else:
                 center  -1
             return int(x / w), int(y / w), center   
