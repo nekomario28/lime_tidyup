@@ -80,8 +80,8 @@ RUN source /opt/ros/${ROS_DISTRO}/setup.bash \
 && colcon build --symlink-install
 WORKDIR /root/turtlebot3_ws/install 
 COPY ./project/resource/turtlebot3_lime.urdf.xacro turtlebot3_lime_description/share/turtlebot3_lime_description/urdf
-#COPY ./project/resource/gazebo2.launch.py turtlebot3_lime_bringup/share/turtlebot3_lime_bringup/launch
-#COPY ./project/resource/moveit_gazebo2.launch.py turtlebot3_lime_moveit_config/share/turtlebot3_lime_moveit_config/launch
+# COPY ./project/resource/gazebo2.launch.py turtlebot3_lime_bringup/share/turtlebot3_lime_bringup/launch
+# COPY ./project/resource/moveit_gazebo2.launch.py turtlebot3_lime_moveit_config/share/turtlebot3_lime_moveit_config/launch
 COPY ./project/resource/sim_house.world turtlebot3_lime_bringup/share/turtlebot3_lime_bringup/worlds
 
 WORKDIR /root/.gazebo
