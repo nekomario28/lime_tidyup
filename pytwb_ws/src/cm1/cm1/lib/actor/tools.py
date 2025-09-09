@@ -6,6 +6,7 @@ from pyquaternion import Quaternion
 from pytwb import lib_main
 from ros_actor import SubNet, actor, register_bt
 from ..pointlib import PointEx
+import cv2
 
 class Tools(SubNet):
     # command version
@@ -90,4 +91,10 @@ class Tools(SubNet):
         print(f'assumed:{degrees(atan2(0.5, 1.0))}')
         x, y, angle = self.run_actor('object_loc')
         print(f'angle:{degrees(angle)}')
+
+    @actor 
+    def shot(self, pic_name):
+        cv_image = self.run_actor('pic_receiver')
+        pt = "/root/imgp_ws/" + pic_name + ".png"
+        cv2.imwrite(pt, cv_image)
     
