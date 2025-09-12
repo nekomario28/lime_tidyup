@@ -7,6 +7,7 @@ from pytwb import lib_main
 from ros_actor import SubNet, actor, register_bt
 from ..pointlib import PointEx
 import cv2
+import numpy as np
 
 class Tools(SubNet):
     # command version
@@ -93,8 +94,19 @@ class Tools(SubNet):
         print(f'angle:{degrees(angle)}')
 
     @actor 
-    def shot(self, pic_name):
+    def shot(self, fname):
         cv_image = self.run_actor('pic_receiver')
-        pt = "/root/imgp_ws/" + pic_name + ".png"
+        pt = "/root/imgp_ws/" + fname + ".png"
         cv2.imwrite(pt, cv_image)
     
+    @actor
+    def depth_shot(self, fname):
+        data = self.run_actor('depth')
+        cv_bridge = self.get_value('cv_bridge')
+        depth_image = cv_bridge.imgmsg_to_cv2(data, desired_encoding='passthrough')
+        
+        normalized_depth = cv2.normalize(depth_image, None, 0, 255, cv2.NORM_MINMAX)
+        normalized_depth = np.uint8(normalized_depth)
+
+        pt = "/root/imgp_ws/" + fname + ".png"
+        cv2.imwrite(pt, normalized_depth)
