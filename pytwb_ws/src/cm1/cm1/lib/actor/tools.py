@@ -8,6 +8,7 @@ from ros_actor import SubNet, actor, register_bt
 from ..pointlib import PointEx
 import cv2
 import numpy as np
+import pyrealsense2 as rs
 
 class Tools(SubNet):
     # command version
@@ -104,9 +105,19 @@ class Tools(SubNet):
         data = self.run_actor('depth')
         cv_bridge = self.get_value('cv_bridge')
         depth_image = cv_bridge.imgmsg_to_cv2(data, desired_encoding='passthrough')
-        
+        # 適切な画像になるように正規化している
         normalized_depth = cv2.normalize(depth_image, None, 0, 255, cv2.NORM_MINMAX)
         normalized_depth = np.uint8(normalized_depth)
 
         pt = "/root/imgp_ws/" + fname + ".png"
         cv2.imwrite(pt, normalized_depth)
+
+    def pix_to_coordinate(self, x, y, distance):
+        intrinsics = self.get_value('intrinsics')
+        p = rs.rs2_deproject_pixel_to_point(intrinsics,[x,y], distance)
+        return p[2],-p[0]
+
+    @actor
+    def go_front(self):
+        x, y, theta = self.run_actor("object_loc", "map")
+        self.run_actor("goto", x, y, theta)
