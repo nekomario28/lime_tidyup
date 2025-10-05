@@ -1,0 +1,1 @@
+ros2 launch turtlebot3_lime_bringup gazebo.launch.py world:=/root/turtlebot3_ws/turtlebot3_lime/turtlebot3_lime_bringup/worlds/empty_world.model
