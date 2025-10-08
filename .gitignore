@@ -1,5 +1,6 @@
 roscommon/
 project/test_ws/
+# practice_ws/
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[cod]
