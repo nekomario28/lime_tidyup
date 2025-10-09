@@ -57,7 +57,7 @@ RUN echo "export ROS_LOCALHOST_ONLY=1" >> .bashrc
 RUN echo "export CYCLONEDDS_URI=/project/resource/cyclonedds.xml" >> .bashrc
 RUN echo "export GAZEBO_PLUGIN_PATH=$GAZEBO_PLUGIN_PATH:/project/lib_ws/build/gazebo_grasp_plugin" >> .bashrc
 RUN echo "export RMW_IMPLEMENTATION=rmw_cyclonedds_cpp" >> .bashrc
-RUN echo 'export GAZEBO_MODEL_PATH=$GAZEBO_MODEL_PATH:/opt/ros/humble/share/turtlebot3_gazebo/models' >> .bashrc
+RUN echo 'export GAZEBO_MODEL_PATH=$GAZEBO_MODEL_PATH:/opt/ros/humble/share/turtlebot3_gazebo/models:/root/practice_ws/worlds' >> .bashrc
 RUN echo 'PATH=$PATH:/root/bin' >> .bashrc
 
 
