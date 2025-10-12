@@ -276,3 +276,8 @@ class ManipulatorNetwork(SubNet):
         state_dict = dict(zip(state.name, state.position))
         return state_dict
         
+    @actor
+    def arm_angle(self, j1=0, j2=0, j3=0, j4=0, j5=0, j6=0):
+        joint = [radians(j1), radians(j2), radians(j3), radians(j4), radians(j5), radians(j6)]
+        self.run_actor('move_joint', *joint)
+        return True
