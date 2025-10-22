@@ -166,6 +166,19 @@ class Tb3NavigationSystem(SubSystem):
         self.set_value('current_pose', (x, y, theta))
 #        return (result.status == GoalStatus.STATUS_SUCCEEDED)
         return True
+
+    @actor
+    def goto_deg(self, x, y, degree):
+        rad = radians(degree)
+        theta = round(rad, 2)
+        x, y = float(x), float(y)
+
+        goal = self.create_move_base_goal(x, y, theta)
+        result = self.run_actor('navigate', goal)
+        self.set_value('current_pose', (x, y, theta))
+#        return (result.status == GoalStatus.STATUS_SUCCEEDED)
+        return True
+
     
     @actor
     def migrate(self, dx=0.0, dy=0.0, dtheta=0.0):

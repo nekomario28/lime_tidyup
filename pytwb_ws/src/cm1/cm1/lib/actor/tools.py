@@ -1,4 +1,4 @@
-from math import atan2, degrees
+from math import atan2, degrees, radians
 import os
 
 from pyquaternion import Quaternion
@@ -95,13 +95,13 @@ class Tools(SubNet):
         print(f'angle:{degrees(angle)}')
 
     @actor 
-    def shot(self, fname):
+    def shot(self, fpath):
         cv_image = self.run_actor('pic_receiver')
-        pt = "/root/imgp_ws/" + fname + ".png"
+        pt = fpath + ".png"
         cv2.imwrite(pt, cv_image)
     
     @actor
-    def depth_shot(self, fname):
+    def depth_shot(self, fpath):
         data = self.run_actor('depth')
         cv_bridge = self.get_value('cv_bridge')
         depth_image = cv_bridge.imgmsg_to_cv2(data, desired_encoding='passthrough')
@@ -109,7 +109,7 @@ class Tools(SubNet):
         normalized_depth = cv2.normalize(depth_image, None, 0, 255, cv2.NORM_MINMAX)
         normalized_depth = np.uint8(normalized_depth)
 
-        pt = "/root/imgp_ws/" + fname + ".png"
+        pt = fpath + ".png"
         cv2.imwrite(pt, normalized_depth)
 
     def pix_to_coordinate(self, x, y, distance):
@@ -121,3 +121,4 @@ class Tools(SubNet):
     def go_front(self):
         x, y, theta = self.run_actor("object_loc", "map")
         self.run_actor("goto", x, y, theta)
+
