@@ -15,7 +15,7 @@ from tf2_ros.buffer import Buffer
 from tf2_ros import TransformException
 from tf2_ros.transform_listener import TransformListener
 from nav2_msgs.action import NavigateToPose
-from sensor_msgs.msg import Image, CameraInfo
+from sensor_msgs.msg import Image, CameraInfo, JointState
 from geometry_msgs.msg import Twist
 from action_msgs.msg import GoalStatus
 from nav_msgs.msg import OccupancyGrid
@@ -41,8 +41,8 @@ from .tools import Tools
 MOVE_GROUP_ARM: str = "arm"
 MOVE_GROUP_GRIPPER: str = "gripper"
 
-OPEN_GRIPPER_JOINT_POSITIONS: List[float] = [0.04, 0.04]
-CLOSED_GRIPPER_JOINT_POSITIONS: List[float] = [0.008, 0.008]
+OPEN_GRIPPER_JOINT_POSITIONS: List[float] = [0.019, 0.019]
+CLOSED_GRIPPER_JOINT_POSITIONS: List[float] = [0.007, 0.007]
 # CLOSED_GRIPPER_JOINT_POSITIONS: List[float] = [0.0, 0.0]
 
 def joint_names() -> List[str]:
@@ -241,6 +241,7 @@ class Tb3ManipulatorSystem(SubSystem):
         self.set_value('arm', arm)
         self.set_value('gripper', gripper) 
         self.set_value('joint_stat', [0.0, 0.0, 0.0, 0.0])  
+        self.register_subscriber('joints',JointState,"/joint_states",10)
     
 class MapSystem(SubSystem):
     def __init__(self, name, parent, map_file=None) -> None:

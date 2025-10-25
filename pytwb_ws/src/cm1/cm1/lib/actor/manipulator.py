@@ -104,11 +104,7 @@ class ManipulatorNetwork(SubNet):
     @actor
     def full_close(self):
         gripper = self.get_value('gripper')
-        goal = GripperCommandAction.Goal()
-        goal.command.position = 0.012
-        goal.command.max_effort = 0.0
-        gripper.move_to_configuration(goal)
-        wait_until_executed(gripper)
+        gripper.move_to_position(-0.01)
         self.run_actor('sleep', 2)
         return True
 
@@ -118,7 +114,7 @@ class ManipulatorNetwork(SubNet):
         gripper.open()
         wait_until_executed(gripper)
         return True
-   
+
     @actor
     def close_gripper(self):
         gripper = self.get_value('gripper')

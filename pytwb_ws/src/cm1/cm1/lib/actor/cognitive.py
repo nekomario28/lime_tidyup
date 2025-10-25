@@ -297,7 +297,7 @@ class CognitiveNetwork(SubNet):
         point.distance = distance 
 #        print(f'find_object x:{target_x}, y:{target_y}, distance:{distance}')
         return point
-    
+
     def find_coke(self, cv_img):
         hsv_img = cv2.cvtColor(cv_img, cv2.COLOR_BGR2HSV)
 
@@ -322,3 +322,14 @@ class CognitiveNetwork(SubNet):
             return -1, -1
         else:
             return int(x / w), int(y / w)   
+
+    @actor
+    def read_marker(self):
+        input_img = self.run_actor('pic_receiver')
+        # get dicionary and get parameters
+        dictionary = cv2.aruco.getPredefinedDictionary(cv2.aruco.DICT_6X6_250)
+        parameters = cv2.aruco.DetectorParameters_create()
+
+        _, ids, _ = cv2.aruco.detectMarkers(input_img, dictionary, parameters=parameters)
+        print(f{ids=})
+        return ids

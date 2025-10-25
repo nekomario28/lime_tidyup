@@ -94,6 +94,32 @@ class Tools(SubNet):
         x, y, angle = self.run_actor('object_loc')
         print(f'angle:{degrees(angle)}')
 
+    @actor
+    def gripper_angle(self, angle):
+        gripper = self.get_value('gripper')
+        gripper.move_to_position(angle)
+        self.run_actor('sleep', 2)
+        return True
+    
+    @actor
+    def get_gripper(self):
+        joints = self.run_actor('joints')
+        target_joint = 'gripper_left_joint'
+        idx = joints.name.index(target_joint)
+        pos = round(joints.position[idx], 2)
+        return pos
+    
+    @actor
+    def get_arm_angle(self):
+        joints = self.run_actor('joints')
+        target_joint = ['joint1', 'joint2', 'joint3', 'joint4', 'joint5', 'joint6']
+        angle_list = []
+        for i in target_joint:
+            idx = joints.name.index(i)
+            pos = round(degrees(joints.position[idx]), 1)
+            angle_list.append(pos)
+        return angle_list
+
     @actor 
     def shot(self, fpath):
         cv_image = self.run_actor('pic_receiver')
