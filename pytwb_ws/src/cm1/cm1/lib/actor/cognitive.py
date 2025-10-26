@@ -12,7 +12,7 @@ import sys
 detector_dir = '/root/practice_ws/images'
 if detector_dir not in sys.path:
     sys.path.append(detector_dir)
-import circle_center_detector, color_center_detector, marker_detector
+# import circle_center_detector, color_center_detector, marker_detector
 import importlib
 
 class CognitiveNetwork(SubNet):
@@ -238,11 +238,11 @@ class CognitiveNetwork(SubNet):
         ret = None
         with self.run_actor_mode('pic_receiver', 'timed_iterator', 10) as pic_iter:
             for cv_image in pic_iter:
-                if self.func is not None:
+                if self.detector is not None:
                     if self.marker_id:
-                        ret = self.func(cv_image, self.marker_id) # marker認識
+                        ret = self.detector(cv_image, self.marker_id) # marker認識
                     else:
-                        ret = self.func(cv_image)
+                        ret = self.detector(cv_image)
                 else:
                     ret = self.find_coke(cv_image)
                 if ret[0] >= 0:
@@ -338,9 +338,20 @@ class CognitiveNetwork(SubNet):
             return int(x / w), int(y / w)  
 
     @actor
+    def read_marker(self):
+        input_img = self.run_actor('pic_receiver')
+        # get dicionary and get parameters
+        dictionary = cv2.aruco.getPredefinedDictionary(cv2.aruco.DICT_6X6_250)
+        parameters = cv2.aruco.DetectorParameters_create()
+
+        _, ids, _ = cv2.aruco.detectMarkers(input_img, dictionary, parameters=parameters)
+        print(ids)
+        return ids
+
+    @actor
     def set_detector(self, full_name, n=None):
         module_name, func_name = full_name.rsplit(".", 1)
-        if module_name == "marker_detector":
+        if func_name == "marker_detector":
             if n is None:
                 print("Need ids, Aborted.")
                 return False
@@ -350,5 +361,16 @@ class CognitiveNetwork(SubNet):
             if self.marker_id:
                 self.marker_id = None
         module = importlib.import_module(module_name)
+        self.detector = getattr(module, func_name)
+        return True
+    
+    @actor
+    def set_func(self, full_name):
+        module_name, func_name = full_name.rsplit(".", 1)
+        module = importlib.import_module(module_name)
         self.func = getattr(module, func_name)
         return True
+    
+    @actor
+    def use_func(self):
+        return self.func()
