@@ -7,6 +7,14 @@ from lib.pointlib import PointEx, PointBag
 import cv2
 import pyrealsense2 as rs
 
+import sys
+
+detector_dir = '/root/practice_ws/images'
+if detector_dir not in sys.path:
+    sys.path.append(detector_dir)
+import circle_center_detector, color_center_detector, marker_detector
+import importlib
+
 class CognitiveNetwork(SubNet):
     @actor
     def carib(self):
@@ -230,7 +238,13 @@ class CognitiveNetwork(SubNet):
         ret = None
         with self.run_actor_mode('pic_receiver', 'timed_iterator', 10) as pic_iter:
             for cv_image in pic_iter:
-                ret = self.find_coke(cv_image)
+                if self.func is not None:
+                    if self.marker_id:
+                        ret = self.func(cv_image, self.marker_id) # marker認識
+                    else:
+                        ret = self.func(cv_image)
+                else:
+                    ret = self.find_coke(cv_image)
                 if ret[0] >= 0:
                     self.cv_image = cv_image
                     self.pic_shape = cv_image.shape
@@ -321,15 +335,20 @@ class CognitiveNetwork(SubNet):
         if w == 0:
             return -1, -1
         else:
-            return int(x / w), int(y / w)   
+            return int(x / w), int(y / w)  
 
     @actor
-    def read_marker(self):
-        input_img = self.run_actor('pic_receiver')
-        # get dicionary and get parameters
-        dictionary = cv2.aruco.getPredefinedDictionary(cv2.aruco.DICT_6X6_250)
-        parameters = cv2.aruco.DetectorParameters_create()
-
-        _, ids, _ = cv2.aruco.detectMarkers(input_img, dictionary, parameters=parameters)
-        print(f{ids=})
-        return ids
+    def set_detector(self, full_name, n=None):
+        module_name, func_name = full_name.rsplit(".", 1)
+        if module_name == "marker_detector":
+            if n is None:
+                print("Need ids, Aborted.")
+                return False
+            else:
+                self.marker_id = n
+        else:
+            if self.marker_id:
+                self.marker_id = None
+        module = importlib.import_module(module_name)
+        self.func = getattr(module, func_name)
+        return True
