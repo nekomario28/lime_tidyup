@@ -30,7 +30,7 @@ def calc_centroid(mask):
         return None   
 ##　↑↑↑↑↑↑↑inRangeWrap, calc_centroidは変更しないでください↑↑↑↑↑↑↑
 
-def ball_detector(img):
+def d_ball(img):
     # 画像の読み込み
     draw_img = img.copy() # 元データを書き換えないようにコピーを作成
     # HSVに変換（色指定はRGBよりHSVの方が扱いやすい）
@@ -51,7 +51,7 @@ def ball_detector(img):
     except TypeError:
         return None
 
-def coke_detector(img):
+def d_coke(img):
     # 画像の読み込み
     draw_img = img.copy() # 元データを書き換えないようにコピーを作成
     # HSVに変換（色指定はRGBよりHSVの方が扱いやすい）
@@ -72,7 +72,7 @@ def coke_detector(img):
     except TypeError:
         return None
 
-def circle_detector(img):
+def d_circle(img):
     # 画像読み込み
     draw_img = img.copy()
 

@@ -24,10 +24,13 @@ class CognitiveNetwork(SubNet):
     # Get the coordinates of the object in the arm coordinate system
     @actor  
     def object_loc(self, target='link1'):
-        while True:
-            point = self.run_actor('find_object')
-            if point: break
-            self.run_actor('sleep', 1)
+        # while True:
+        #     point = self.run_actor('find_object')
+        #     if point: break
+        #     self.run_actor('sleep', 1)
+        point = self.run_actor('find_object')
+        if point is None: return False
+        self.run_actor('sleep', 1)
 #        print(f'object_loc x:{point._x}, y:{point._y}')
         trans = self.run_actor('var_trans', target)
         point.setTransform(trans.transform)
@@ -38,10 +41,13 @@ class CognitiveNetwork(SubNet):
     # get target location by map coordinate
     @actor
     def object_glance(self):
-        while True:
-            trans = self.run_actor('map_trans')
-            point = self.run_actor('find_object')
-            if point: break
+        # while True:
+        #     trans = self.run_actor('map_trans')
+        #     point = self.run_actor('find_object')
+        #     if point: break
+        trans = self.run_actor('map_trans')
+        point = self.run_actor('find_object')
+        if point is None: return False
 #        trans = self.run_actor('map_trans') # avoid delays in receiving odom
         point.setTransform(trans.transform)
         print(f"{point.x:.3f} {point.y:.3f}")
@@ -105,6 +111,7 @@ class CognitiveNetwork(SubNet):
         distance = det_line[index] / 1000
         actual_distance = distance
         center = self.run_actor('pic_find')
+        if not center: return None
         index = center[0] # by pic cell
         zp = center[1] # by pic cell
         if not center: return 0, 0, 0, 0
@@ -246,10 +253,13 @@ class CognitiveNetwork(SubNet):
                         ret = self.detector(cv_image)
                 else:
                     ret = self.find_coke(cv_image)
-                if ret[0] >= 0:
-                    self.cv_image = cv_image
-                    self.pic_shape = cv_image.shape
-                    break
+                try:
+                    if ret[0] >= 0:
+                        self.cv_image = cv_image
+                        self.pic_shape = cv_image.shape
+                        break
+                except TypeError:
+                    return False
         if ret[0] < 0: return None
         return ret
     
@@ -346,7 +356,7 @@ class CognitiveNetwork(SubNet):
         parameters = cv2.aruco.DetectorParameters_create()
 
         _, ids, _ = cv2.aruco.detectMarkers(input_img, dictionary, parameters=parameters)
-        print(ids)
+        # print(ids)
         return ids
 
     @actor
@@ -356,7 +366,7 @@ class CognitiveNetwork(SubNet):
             print("need to set module_name.func_name, Aborted")
             return False
         self.marker_id = None
-        if func_name == "marker_detector":
+        if module_name == "marker":
             if n is None:
                 print("Need ids, Aborted.")
                 return False
