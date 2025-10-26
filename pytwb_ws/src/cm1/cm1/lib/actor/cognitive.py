@@ -367,15 +367,11 @@ class CognitiveNetwork(SubNet):
                 self.marker_id = None
         try:
             module = importlib.import_module(module_name)
-        except ModuleNotFoundError:
+            self.detector = getattr(module, func_name)
+        except (ModuleNotFoundError, AttributeError):
             print("module or function doesn't exist, Aborted")
             self.marker_id = None
             return False
-        except AttributeError:
-            print("module or function doesn't exist, Aborted")
-            self.marker_id = None
-            return False
-        self.detector = getattr(module, func_name)
         return True
     
     @actor
