@@ -351,6 +351,7 @@ class CognitiveNetwork(SubNet):
     @actor
     def set_detector(self, full_name, n=None):
         module_name, func_name = full_name.rsplit(".", 1)
+        self.marker_id = None
         if func_name == "marker_detector":
             if n is None:
                 print("Need ids, Aborted.")
