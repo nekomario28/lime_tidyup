@@ -351,7 +351,10 @@ class CognitiveNetwork(SubNet):
 
     @actor
     def set_detector(self, full_name, n=None):
-        module_name, func_name = full_name.rsplit(".", 1)
+        try: module_name, func_name = full_name.rsplit(".", 1)
+        except ValueError: 
+            print("need to set module_name.func_name, Aborted")
+            return False
         self.marker_id = None
         if func_name == "marker_detector":
             if n is None:
@@ -364,8 +367,8 @@ class CognitiveNetwork(SubNet):
                 self.marker_id = None
         try:
             module = importlib.import_module(module_name)
-        except ValueError:
-            print("module doesn't exist, Aborted")
+        except (ModuleNotFoundError, AttributeError):
+            print("module or function doesn't exist, Aborted")
             self.marker_id = None
             return False
         self.detector = getattr(module, func_name)
