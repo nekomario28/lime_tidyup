@@ -362,7 +362,12 @@ class CognitiveNetwork(SubNet):
         else:
             if self.marker_id:
                 self.marker_id = None
-        module = importlib.import_module(module_name)
+        try:
+            module = importlib.import_module(module_name)
+        except ValueError:
+            print("module doesn't exist, Aborted")
+            self.marker_id = None
+            return False
         self.detector = getattr(module, func_name)
         return True
     
