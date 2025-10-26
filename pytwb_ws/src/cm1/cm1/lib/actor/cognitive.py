@@ -44,6 +44,7 @@ class CognitiveNetwork(SubNet):
             if point: break
 #        trans = self.run_actor('map_trans') # avoid delays in receiving odom
         point.setTransform(trans.transform)
+        print(f"{point.x:.3f} {point.y:.3f}")
         return point.x, point.y
     
     def register_flist(self, cand_points, point):
