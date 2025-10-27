@@ -23,7 +23,7 @@ class ManipulatorNetwork(SubNet):
     @actor
     def home(self):
 #        joint = [0.0, 1.0, 1.575, 0.0, -1.0, 0.0]
-        joint = [0.0, radians(23), radians(80), 0.0, -radians(14), 0.0]
+        joint = [0.0, radians(-63), radians(107), 0.0, radians(56), 0.0]
         self.run_actor('move_joint', *joint)
         return True
 

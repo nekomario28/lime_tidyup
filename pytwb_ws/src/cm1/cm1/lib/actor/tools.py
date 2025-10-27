@@ -9,6 +9,7 @@ from ..pointlib import PointEx
 import cv2
 import numpy as np
 import pyrealsense2 as rs
+import subprocess
 
 class Tools(SubNet):
     # command version
@@ -147,4 +148,16 @@ class Tools(SubNet):
     def go_front(self):
         x, y, theta = self.run_actor("object_loc", "map")
         self.run_actor("goto", x, y, theta)
+
+    @actor
+    def close_attach(self, linkobj: str, link: str):
+        cmd = f"""ros2 service call /ATTACHLINK linkattacher_msgs/srv/AttachLink "{{model1_name: 'turtlebot3_lime_system', link1_name: 'link7', model2_name: '{linkobj}', link2_name: '{link}'}}" """
+        subprocess.run(cmd, shell=True)
+        return True
+    
+    @actor
+    def open_detach(self, linkobj: str, link: str):
+        cmd = f"""ros2 service call /DETACHLINK linkattacher_msgs/srv/DetachLink "{{model1_name: 'turtlebot3_lime_system', link1_name: 'link7', model2_name: '{linkobj}', link2_name: '{link}'}}" """
+        subprocess.run(cmd, shell=True)
+        return True
 

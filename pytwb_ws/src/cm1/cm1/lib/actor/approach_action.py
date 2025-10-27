@@ -48,13 +48,19 @@ class ApproachAction(SubNet):
         assumed = -1
         current = 0
         if speed > 0.5:
+            # pid = PID(-10, 0, -0.25,
+            #         output_limits=(radians(-80),radians(80)))
+            # print('PID,-10,0,-0.25', file=f)
             pid = PID(-10, 0, -0.25,
-                    output_limits=(radians(-80),radians(80)))
-            print('PID,-10,0,-0.25', file=f)
+                    output_limits=(radians(-40),radians(40)))
+            print('PID,-10,0,-0.1', file=f)
         else:
+            # pid = PID(-10, 0, -0.05,
+            #         output_limits=(radians(-80),radians(80)))
+            # print('PID,-10,0,-0.25', file=f)
             pid = PID(-10, 0, -0.05,
-                    output_limits=(radians(-80),radians(80)))
-            print('PID,-10,0,-0.05', file=f)
+                    output_limits=(radians(-40),radians(40)))
+            print('PID,-10,0,-0.1', file=f)
 
         while True:
             log = {}
@@ -78,6 +84,7 @@ class ApproachAction(SubNet):
             d_y = y - start_y
             last_current = current
             current = sqrt(d_x**2 + d_y**2)
+            print(f"{distance=}")
             if distance > 0:
                 assumed = distance
             else:
@@ -98,9 +105,9 @@ class ApproachAction(SubNet):
         start_x, start_y, _ = self.get_odom()
         assumed = -1
         current = 0
-        pid = PID(-15, 0, -0.05,
-            output_limits=(radians(-80),radians(80)))
-        print('PID,-15,0,-0.05', file=f)
+        pid = PID(-5, 0, -0.05,
+            output_limits=(radians(-40),radians(40)))
+        print('PID,-7,0,-0.05', file=f)
 
         while True:
             log = {}

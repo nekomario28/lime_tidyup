@@ -2,9 +2,9 @@ FROM osrf/ros:humble-desktop-full
 SHELL ["/bin/bash", "-c"]
 
 # If you get a gpg error during docker build, uncomment the following three lines:
-# RUN rm -f /etc/apt/sources.list.d/ros*.list \ /etc/apt/sources.list.d/openrobotics.list
-# RUN curl -sSL https://raw.githubusercontent.com/ros/rosdistro/master/ros.key -o /usr/share/keyrings/ros-archive-keyring.gpg
-# RUN echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/ros-archive-keyring.gpg] http://packages.ros.org/ros2/ubuntu $(. /etc/os-release && echo $UBUNTU_CODENAME) main" | tee /etc/apt/sources.list.d/ros2.list > /dev/null
+#RUN rm -f /etc/apt/sources.list.d/ros*.list \ /etc/apt/sources.list.d/openrobotics.list
+#RUN curl -sSL https://raw.githubusercontent.com/ros/rosdistro/master/ros.key -o /usr/share/keyrings/ros-archive-keyring.gpg
+#RUN echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/ros-archive-keyring.gpg] http://packages.ros.org/ros2/ubuntu $(. /etc/os-release && echo $UBUNTU_CODENAME) main" | tee /etc/apt/sources.list.d/ros2.list > /dev/null
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
  git python3-pip vim eog xterm less wget
@@ -29,11 +29,11 @@ RUN vcs import < dependencies.repos
 WORKDIR /project/lib_ws/src/pymoveit2
 COPY ./project/resource/pymoveit2_setup.py setup.py
 
-WORKDIR /project/lib_ws/src/gazebo-pkgs/gazebo_grasp_plugin
-COPY ./project/resource/grasp/CMakeLists.txt CMakeLists.txt
-COPY ./project/resource/grasp/package.xml package.xml
-WORKDIR /project/lib_ws/src/gazebo-pkgs/
-RUN rm -r gazebo_test_tools gazebo_state_plugins gazebo_world_plugin_loader
+#WORKDIR /project/lib_ws/src/gazebo-pkgs/gazebo_grasp_plugin
+#COPY ./project/resource/grasp/CMakeLists.txt CMakeLists.txt
+#COPY ./project/resource/grasp/package.xml package.xml
+#WORKDIR /project/lib_ws/src/gazebo-pkgs/
+#RUN rm -r gazebo_test_tools gazebo_state_plugins gazebo_world_plugin_loader
 
 # Build the base Colcon workspace, installing dependencies first.
 WORKDIR /project/lib_ws
@@ -55,7 +55,7 @@ RUN echo "source /usr/share/gazebo/setup.sh" >> .bashrc
 RUN echo "source ~/turtlebot3_ws/install/setup.bash" >> .bashrc
 RUN echo "export ROS_LOCALHOST_ONLY=1" >> .bashrc
 RUN echo "export CYCLONEDDS_URI=/project/resource/cyclonedds.xml" >> .bashrc
-RUN echo "export GAZEBO_PLUGIN_PATH=$GAZEBO_PLUGIN_PATH:/project/lib_ws/build/gazebo_grasp_plugin" >> .bashrc
+RUN echo "export GAZEBO_PLUGIN_PATH=$GAZEBO_PLUGIN_PATH:/project/lib_ws/build/IFRA_LinkAttacher" >> .bashrc
 RUN echo "export RMW_IMPLEMENTATION=rmw_cyclonedds_cpp" >> .bashrc
 RUN echo 'export GAZEBO_MODEL_PATH=$GAZEBO_MODEL_PATH:/opt/ros/humble/share/turtlebot3_gazebo/models:/root/practice_ws/worlds' >> .bashrc
 RUN echo 'PATH=$PATH:/root/bin' >> .bashrc

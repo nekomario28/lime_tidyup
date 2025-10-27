@@ -16,6 +16,10 @@ if detector_dir not in sys.path:
 import importlib
 
 class CognitiveNetwork(SubNet):
+    def __init__(self, name):
+        super().__init__(name)
+        self.detector = None
+
     @actor
     def carib(self):
         x,y,_ = self.run_actor('object_loc', target='base_link')
@@ -29,6 +33,18 @@ class CognitiveNetwork(SubNet):
         #     if point: break
         #     self.run_actor('sleep', 1)
         point = self.run_actor('find_object')
+        if point is None: return False
+        self.run_actor('sleep', 1)
+#        print(f'object_loc x:{point._x}, y:{point._y}')
+        trans = self.run_actor('var_trans', target)
+        point.setTransform(trans.transform)
+#        angle = atan2(point.y, point.x) + radians(1.05)
+        angle = atan2(point.y, point.x) * 1.34
+        return point.x, point.y, angle
+
+    @actor  
+    def object_front(self, target='link1'):
+        point = self.run_actor('find_object', True)
         if point is None: return False
         self.run_actor('sleep', 1)
 #        print(f'object_loc x:{point._x}, y:{point._y}')
@@ -101,7 +117,7 @@ class CognitiveNetwork(SubNet):
         return ('close', lambda tran: depth_tran.close(depth_tran)),
 
     @actor
-    def measure_center(self, target='link1', assumed=0.25, log=None):
+    def measure_center(self, target='link1', assumed=0.28, log=None):
         data = self.run_actor('depth')
         cv_bridge = self.get_value('cv_bridge')
         depth_image = cv_bridge.imgmsg_to_cv2(data)
@@ -111,10 +127,12 @@ class CognitiveNetwork(SubNet):
         distance = det_line[index] / 1000
         actual_distance = distance
         center = self.run_actor('pic_find')
-        if not center: return None
+        if not center: 
+            return None
         index = center[0] # by pic cell
         zp = center[1] # by pic cell
-        if not center: return 0, 0, 0, 0
+        if not center: 
+            return 0, 0, 0, 0
         if distance < 0.1:
             if assumed > 0:
                 distance = assumed
@@ -198,7 +216,7 @@ class CognitiveNetwork(SubNet):
 
     # find object location
     @actor
-    def find_object(self):
+    def find_object(self, minus: bool = False):
         center = self.run_actor('pic_find')
         if not center: return None
         data = self.run_actor('depth')
@@ -213,6 +231,10 @@ class CognitiveNetwork(SubNet):
         if distance == 0:
             print('find_object zero distance')
             distance = 0.2
+        else:
+            if minus:
+                print("It will stop early.")
+                distance -= 0.20
         target_x, target_y = self.pix_to_coordinate(yp, zp, distance)        
         point = PointEx(target_x, target_y)
         point.v_x = target_x
