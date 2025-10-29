@@ -10,6 +10,7 @@ import cv2
 import numpy as np
 import pyrealsense2 as rs
 import subprocess
+import re
 
 class Tools(SubNet):
     # command version
@@ -161,3 +162,23 @@ class Tools(SubNet):
         subprocess.run(cmd, shell=True)
         return True
 
+    @actor 
+    def get_model_list(self):
+        result = subprocess.run(["ros2", "service", "call", "/get_model_list", "gazebo_msgs/srv/GetModelList", "{}"],
+                                capture_output=True,
+                                text=True
+                                )
+        match = re.search(r"model_names=\[(.*?)\]", result.stdout)
+        if match:
+            raw_list = match.group(1)
+            model_names = [name.strip().strip("'\"") for name in raw_list.split(",")]
+            del model_names[0]
+            del model_names[1]
+
+            print(model_names)
+        return True
+    
+    @actor 
+    def get_object_coodinate(self):
+        model_list = self.run_actor("get_model_list")
+        pass
