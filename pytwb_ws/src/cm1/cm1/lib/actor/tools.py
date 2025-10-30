@@ -154,7 +154,7 @@ class Tools(SubNet):
     def attach(self):
         obj = self.run_actor("choose_pick_obj")
         if obj is None:
-            print("No object.")
+            print("No object. Aborted")
             return False
         
         link = self.run_actor("get_linkname", obj)
@@ -167,7 +167,7 @@ class Tools(SubNet):
     def detach(self):
         obj = self.run_actor("choose_pick_obj")
         if obj is None:
-            print("No object. Aborted")
+            print("No object. ")
             return False
         link = self.run_actor("get_linkname", obj)
 
@@ -245,7 +245,7 @@ class Tools(SubNet):
             if debug:
                 print(f"{objname}: {dist}")
 
-            if dist <= 0.12:
+            if dist <= 0.14:
                 name_list.append(objname)
                 return objname
         return None
