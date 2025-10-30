@@ -269,7 +269,7 @@ class CognitiveNetwork(SubNet):
         with self.run_actor_mode('pic_receiver', 'timed_iterator', 10) as pic_iter:
             for cv_image in pic_iter:
                 if self.detector is not None:
-                    if self.marker_id:
+                    if self.marker_id is None:
                         ret = self.detector(cv_image, self.marker_id) # marker認識
                     else:
                         ret = self.detector(cv_image)
