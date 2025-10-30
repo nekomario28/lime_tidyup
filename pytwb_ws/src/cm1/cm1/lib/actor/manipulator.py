@@ -92,6 +92,7 @@ class ManipulatorNetwork(SubNet):
     @actor
     def open(self):
         self.run_actor('open_gripper')
+        self.run_actor("open_detach")
         self.run_actor('sleep', 2)
         return True
 
@@ -99,6 +100,7 @@ class ManipulatorNetwork(SubNet):
     @actor
     def close(self):
         self.run_actor('close_gripper')
+        self.run_actor("close_attach")
         return True
     
     @actor

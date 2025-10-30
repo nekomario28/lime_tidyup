@@ -20,6 +20,7 @@ from geometry_msgs.msg import Twist
 from action_msgs.msg import GoalStatus
 from nav_msgs.msg import OccupancyGrid
 from nav_msgs.msg import Odometry
+from gazebo_msgs.msg import ModelStates, LinkStates
 
 import transforms3d
 from pymoveit2 import MoveIt2, GripperInterface
@@ -42,8 +43,8 @@ MOVE_GROUP_ARM: str = "arm"
 MOVE_GROUP_GRIPPER: str = "gripper"
 
 OPEN_GRIPPER_JOINT_POSITIONS: List[float] = [0.019, 0.019]
-CLOSED_GRIPPER_JOINT_POSITIONS: List[float] = [0.007, 0.007]
-# CLOSED_GRIPPER_JOINT_POSITIONS: List[float] = [0.0, 0.0]
+# CLOSED_GRIPPER_JOINT_POSITIONS: List[float] = [0.007, 0.007]
+CLOSED_GRIPPER_JOINT_POSITIONS: List[float] = [0.015, 0.015]
 
 def joint_names() -> List[str]:
     return [
@@ -73,6 +74,8 @@ class Tb3(SubSystem):
         self.add_subsystem('navigation', Tb3NavigationSystem)
         self.add_subsystem('manipulator', Tb3ManipulatorSystem)
         self.add_subsystem('camera', Tb3CameraSystem)
+        self.register_subscriber('model_states', ModelStates, 'model_states', 10)
+        self.register_subscriber('link_states', LinkStates, 'link_states', 10)
         self.add_network(Tools)
         node = self.get_value('node')
         tf_buffer = Buffer()

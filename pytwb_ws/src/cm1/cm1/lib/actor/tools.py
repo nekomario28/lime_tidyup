@@ -1,4 +1,4 @@
-from math import atan2, degrees, radians
+from math import atan2, degrees, radians, hypot
 import os
 
 from pyquaternion import Quaternion
@@ -151,34 +151,86 @@ class Tools(SubNet):
         self.run_actor("goto", x, y, theta)
 
     @actor
-    def close_attach(self, linkobj: str, link: str):
-        cmd = f"""ros2 service call /ATTACHLINK linkattacher_msgs/srv/AttachLink "{{model1_name: 'turtlebot3_lime_system', link1_name: 'link7', model2_name: '{linkobj}', link2_name: '{link}'}}" """
+    def close_attach(self):
+        obj = self.run_actor("choose_pick_obj")
+        if obj is None:
+            print("No object. Aborted")
+        link = self.run_actor("get_linkname", obj)
+
+        cmd = f"""ros2 service call /ATTACHLINK linkattacher_msgs/srv/AttachLink "{{model1_name: 'turtlebot3_lime_system', link1_name: 'link7', model2_name: '{obj}', link2_name: '{link}'}}" """
         subprocess.run(cmd, shell=True)
         return True
     
     @actor
-    def open_detach(self, linkobj: str, link: str):
-        cmd = f"""ros2 service call /DETACHLINK linkattacher_msgs/srv/DetachLink "{{model1_name: 'turtlebot3_lime_system', link1_name: 'link7', model2_name: '{linkobj}', link2_name: '{link}'}}" """
+    def open_detach(self):
+        obj = self.run_actor("choose_pick_obj")
+        if obj is None:
+            print("No object. Aborted")
+        link = self.run_actor("get_linkname", obj)
+
+        cmd = f"""ros2 service call /DETACHLINK linkattacher_msgs/srv/DetachLink "{{model1_name: 'turtlebot3_lime_system', link1_name: 'link7', model2_name: '{obj}', link2_name: '{link}'}}" """
         subprocess.run(cmd, shell=True)
         return True
 
-    @actor 
-    def get_model_list(self):
-        result = subprocess.run(["ros2", "service", "call", "/get_model_list", "gazebo_msgs/srv/GetModelList", "{}"],
-                                capture_output=True,
-                                text=True
-                                )
-        match = re.search(r"model_names=\[(.*?)\]", result.stdout)
-        if match:
-            raw_list = match.group(1)
-            model_names = [name.strip().strip("'\"") for name in raw_list.split(",")]
-            del model_names[0]
-            del model_names[1]
+    @actor
+    def get_end_effector(self):
+        link_info = self.run_actor("link_states")
+        names = link_info.name
+        index = names.index("turtlebot3_lime_system::link7")
 
-            print(model_names)
-        return True
+        cod = link_info.pose[index].position
+        return (cod.x, cod.y)
+
+    @actor
+    def get_model_list(self):
+        model_info = self.run_actor("model_states")
+        return model_info.name
+
+    @actor
+    def get_linkname(self, model_name):
+        link_info = self.run_actor("link_states")
+        names = link_info.name
+        target = next((s for s in names if model_name in s), None)
+        match = re.search(rf"^{model_name}::(.+)$", target)
+        if match:
+            link_name = match.group(1)
+        return link_name
+        
+    @actor 
+    def get_modelpos_dict(self, debug:bool = False):
+        pos_dict = {}
+        model_info = self.run_actor("model_states")
+        for i in range(len(model_info.name)):
+            if i < 3:
+                if debug:
+                    print(model_info.name[i])
+            else:
+                cod = model_info.pose[i].position
+                pos_dict[model_info.name[i]] = (cod.x, cod.y)
+        return pos_dict
     
     @actor 
-    def get_object_coodinate(self):
-        model_list = self.run_actor("get_model_list")
-        pass
+    def get_linkpos_dict(self):
+        pos_dict = {}
+        link_info = self.run_actor("link_states")
+        for i in range(len(link_info.name)):
+            cod = link_info.pose[i].position
+            pos_dict[link_info.name[i]] = (cod.x, cod.y)
+        return pos_dict
+
+    @actor
+    def choose_pick_obj(self, debug:bool =False):
+        gripper = self.run_actor("get_end_effector")
+        model_dict = self.run_actor("get_modelpos_dict")
+
+        for objname in model_dict:
+            dist = hypot(gripper[0]-model_dict[objname][0], gripper[1]-model_dict[objname][1])
+            if debug:
+                print(f"{objname}: {dist}")
+
+            if dist <= 0.2:
+                return objname
+        return None
+
+
+# 範囲指定、base_linkとのベクタで向きとって、四角でどうかな？sign取って、signだけ逆側に向けて範囲を指定する
