@@ -151,10 +151,12 @@ class Tools(SubNet):
         self.run_actor("goto", x, y, theta)
 
     @actor
-    def close_attach(self):
+    def attach(self):
         obj = self.run_actor("choose_pick_obj")
         if obj is None:
-            print("No object. Aborted")
+            print("No object.")
+            return False
+        
         link = self.run_actor("get_linkname", obj)
 
         cmd = f"""ros2 service call /ATTACHLINK linkattacher_msgs/srv/AttachLink "{{model1_name: 'turtlebot3_lime_system', link1_name: 'link7', model2_name: '{obj}', link2_name: '{link}'}}" """
@@ -162,10 +164,11 @@ class Tools(SubNet):
         return True
     
     @actor
-    def open_detach(self):
+    def detach(self):
         obj = self.run_actor("choose_pick_obj")
         if obj is None:
             print("No object. Aborted")
+            return False
         link = self.run_actor("get_linkname", obj)
 
         cmd = f"""ros2 service call /DETACHLINK linkattacher_msgs/srv/DetachLink "{{model1_name: 'turtlebot3_lime_system', link1_name: 'link7', model2_name: '{obj}', link2_name: '{link}'}}" """
@@ -173,13 +176,25 @@ class Tools(SubNet):
         return True
 
     @actor
-    def get_end_effector(self):
+    def get_link7(self):
         link_info = self.run_actor("link_states")
         names = link_info.name
         index = names.index("turtlebot3_lime_system::link7")
 
         cod = link_info.pose[index].position
         return (cod.x, cod.y)
+    
+    @actor
+    def get_end_effector(self):
+        link_info = self.run_actor("link_states")
+        names = link_info.name
+
+        right = names.index("turtlebot3_lime_system::gripper_right_link")
+        left = names.index("turtlebot3_lime_system::gripper_left_link")
+
+        r_cod = link_info.pose[right].position
+        l_cod = link_info.pose[left].position
+        return r_cod.x, r_cod.y, l_cod.x, l_cod.y
 
     @actor
     def get_model_list(self):
@@ -219,18 +234,37 @@ class Tools(SubNet):
         return pos_dict
 
     @actor
+    # def get_near_obj(self, debug:bool =False):
     def choose_pick_obj(self, debug:bool =False):
-        gripper = self.run_actor("get_end_effector")
+        gripper = self.run_actor("get_link7")
         model_dict = self.run_actor("get_modelpos_dict")
+        name_list = []
 
         for objname in model_dict:
             dist = hypot(gripper[0]-model_dict[objname][0], gripper[1]-model_dict[objname][1])
             if debug:
                 print(f"{objname}: {dist}")
 
-            if dist <= 0.2:
+            if dist <= 0.12:
+                name_list.append(objname)
                 return objname
         return None
+        # if len(name_list) == 0:
+        #     return False
+        # return name_list
 
 
-# 範囲指定、base_linkとのベクタで向きとって、四角でどうかな？sign取って、signだけ逆側に向けて範囲を指定する
+    # @actor 
+    # def choose_pick_obj(self):
+    #     name_list = self.run_actor("get_near_obj")
+    #     r_x, r_y, l_x, l_y = self.run_actor("get_end_effector")
+    #     model_dict = self.run_actor("get_modelpos_dict")
+
+    #     if not name_list:
+    #         return False
+        
+    #     for n in name_list:
+    #         print(model_dict[n])
+
+    #     objname = None
+    #     return objname

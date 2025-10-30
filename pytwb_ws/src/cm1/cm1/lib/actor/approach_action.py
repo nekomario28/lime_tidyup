@@ -157,7 +157,7 @@ class ApproachAction(SubNet):
         
     # adjust location
     @actor
-    def reach_coke(self, target=0.26):
+    def reach_coke(self, target=0.28):
         trans = self.run_actor('map_trans')
         start = PointEx(0.0, 0.0)
         start.setTransform(trans.transform)
