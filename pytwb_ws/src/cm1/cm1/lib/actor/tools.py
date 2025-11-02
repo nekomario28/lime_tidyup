@@ -21,7 +21,18 @@ class Tools(SubNet):
             arg.append(0.0)
         return self.run_actor('goto', arg[0], arg[1], arg[2])
 
+    # org
     # update behavior tree name table
+    # @actor
+    # def update_bt(self):
+    #     package = lib_main.get_package()
+    #     dir = os.path.join(package.path, 'trees')
+    #     for d in os.listdir(dir):
+    #         if not d.endswith('.xml'): continue
+    #         name = d[:-4]
+    #         register_bt(name)
+    #     return True
+
     @actor
     def update_bt(self):
         package = lib_main.get_package()
@@ -268,3 +279,14 @@ class Tools(SubNet):
 
     #     objname = None
     #     return objname
+
+    @actor
+    def make_symbolic_link(self):
+        dir_path = "/root/practice_ws/trees"
+        org_path = "/root/pytwb_ws/src/cm1/cm1/trees"
+        for d in os.listdir(dir_path):
+            if not d.endswith('.xml'): continue
+            if d not in os.listdir(org_path):
+                cmd = f"""ln -s /root/practice_ws/trees/{d} /root/pytwb_ws/src/cm1/cm1/trees/{d}"""
+                subprocess.run(cmd, shell=True)
+        return True

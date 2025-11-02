@@ -59,5 +59,5 @@ class CheckCoke(ActorBT):
 class SetDetector(ActorBT):
     desc = 'approach target by specified len'
 
-    def __init__(self, name, node, func_name):
-        super().__init__(name, 'set_detector', func_name)
+    def __init__(self, name, node, func_name, id):
+        super().__init__(name, 'set_detector', func_name, id)
