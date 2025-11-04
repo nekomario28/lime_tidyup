@@ -74,7 +74,7 @@ class ActorBT(py_trees.behaviour.Behaviour):
 
     def terminate(self, new_status):
         self.shared.close()
-        return
+        return True
 #        self.logger.info(f"Terminated with status {new_status}")
 
     def set_callee(self, callee):

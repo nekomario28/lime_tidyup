@@ -32,7 +32,7 @@ class Shift(ActorBT):
         super().__init__(name, 'shift', target)
 
 @behavior
-class ReachCoke(ActorBT):
+class ReachObj(ActorBT):
     desc = 'approach cola can'
 
     def __init__(self, name, node):
