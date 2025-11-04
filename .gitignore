@@ -1,8 +1,6 @@
 roscommon/
 project/test_ws/
-practice_ws/maps
-practice_ws/worlds
-practice_ws/images
+practice_ws/
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[cod]
