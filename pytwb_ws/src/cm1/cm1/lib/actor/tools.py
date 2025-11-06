@@ -21,18 +21,6 @@ class Tools(SubNet):
             arg.append(0.0)
         return self.run_actor('goto', arg[0], arg[1], arg[2])
 
-    # org
-    # update behavior tree name table
-    # @actor
-    # def update_bt(self):
-    #     package = lib_main.get_package()
-    #     dir = os.path.join(package.path, 'trees')
-    #     for d in os.listdir(dir):
-    #         if not d.endswith('.xml'): continue
-    #         name = d[:-4]
-    #         register_bt(name)
-    #     return True
-
     @actor
     def update_bt(self):
         package = lib_main.get_package()
@@ -158,7 +146,7 @@ class Tools(SubNet):
 
     @actor
     def go_front(self):
-        x, y, theta = self.run_actor("object_loc", "map")
+        x, y, theta = self.run_actor("object_front", "map")
         self.run_actor("goto", x, y, theta)
 
     @actor

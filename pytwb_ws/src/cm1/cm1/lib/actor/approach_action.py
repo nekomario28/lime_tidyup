@@ -5,6 +5,7 @@ from ros_actor import actor, SubNet
 from ..pointlib import PointEx
 from geometry_msgs.msg import Twist
 from tf_transformations import euler_from_quaternion 
+import time
 
 SPEED = 0.03
 TURN = 0.3
@@ -24,6 +25,14 @@ class ApproachAction(SubNet):
     @actor
     def stop(self):
         self.move(0)
+
+    @actor
+    def walk(self, distance):
+        duration = distance / SPEED
+        start_time = time.time()
+        while (time.time() - start_time) < duration:
+            self.move()
+        self.run_actor("stop")
     
     # direct command to motor
     @actor    

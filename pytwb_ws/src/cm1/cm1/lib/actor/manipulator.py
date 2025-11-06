@@ -281,3 +281,10 @@ class ManipulatorNetwork(SubNet):
         joint = [radians(j1), radians(j2), radians(j3), radians(j4), radians(j5), radians(j6)]
         self.run_actor('move_joint', *joint)
         return True
+    
+# register_pose {register_name} j1 j2 j3 j4 j5 j6
+# で動かせるactor登録actorがあったら良いのになあ
+# 尚、登録機はactorでなくてもよい。。。けど、まあactorが良いか。
+# 名前被りは"名前被りだ！"って言えるように、全部の関数名を正規表現とかでリストにしたい。つまるところアームだけで良い。
+# behaviorにはならんが。
+# そういえば、勝手にmigrationしてくれるやつを作りたい。

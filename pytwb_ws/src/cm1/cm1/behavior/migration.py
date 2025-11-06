@@ -18,17 +18,32 @@ class Approach(ActorBT):
         super().initialise()
 
 @behavior
+class Stop(ActorBT):
+    def __init__(self, name, node):
+        super().__init__(name, 'stop')
+
+@behavior
+class Walk(ActorBT):
+    def __init__(self, name, node, distance):
+        super().__init__(name, 'walk', distance)
+
+@behavior
+class Mini_Turn(ActorBT):
+    def __init__(self, name, node, len):
+        super().__init__(name, 'mini_turn', len)
+
+@behavior
 class Mini_Walk(ActorBT):
     desc = 'approach target by specified time'
 
-    def __init__(self, name, node, target=1):
+    def __init__(self, name, node, target):
         super().__init__(name, 'mini_walk', target)
 
 @behavior
 class Shift(ActorBT):
     desc = 'approach target by specified len'
 
-    def __init__(self, name, node, target=0.006):
+    def __init__(self, name, node, target):
         super().__init__(name, 'shift', target)
 
 @behavior
@@ -37,6 +52,7 @@ class ReachObj(ActorBT):
 
     def __init__(self, name, node):
         super().__init__(name, 'reach_coke')
+        
 
 @behavior
 class Face(ActorBT):
@@ -61,3 +77,8 @@ class SetDetector(ActorBT):
 
     def __init__(self, name, node, func_name, id):
         super().__init__(name, 'set_detector', func_name, id)
+
+@behavior
+class GripperAngle(ActorBT):
+    def __init__(self, name, node, angle):
+        super().__init__(name, 'gripper_angle', angle)

@@ -38,13 +38,6 @@ class Pick(ActorBT):
         )
 
 @behavior
-class Place(ActorBT):
-    desc = 'place object'
-
-    def __init__(self, name, node):
-        super().__init__(name, 'place')
-
-@behavior
 class Open(ActorBT):
     desc = 'gripper open'
 
@@ -63,12 +56,34 @@ class ArmHome(ActorBT):
                 ('home', None)
             )
         )
-        
-        
 # add
 @behavior
 class Close(ActorBT):
-    desc = 'place object'
-
     def __init__(self, name, node):
         super().__init__(name, 'close')
+
+@behavior
+class Arm0(ActorBT):
+    def __init__(self, name, node):
+        super().__init__(name, 'arm0')
+
+@behavior
+class FullClose(ActorBT):
+    def __init__(self, name, node):
+        super().__init__(name, 'full_close')
+
+@behavior
+class ArmTurn(ActorBT):
+    def __init__(self, name, node, value=0):
+        super().__init__(name, 'arm_turn', value=0)
+
+@behavior
+class Ad0(ActorBT):
+    def __init__(self, name, node):
+        super().__init__(name, 'ad0')
+
+@behavior
+class ArmAngle(ActorBT):
+    def __init__(self, name, node, j1, j2, j3, j4, j5, j6):
+        super().__init__(name, 'arm_angle', j1, j2, j3, j4, j5, j6)
+
