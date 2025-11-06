@@ -30,12 +30,9 @@ class Pick(ActorBT):
     desc = 'pick object'
 
     def __init__(self, name, node):
-        super().__init__(name, 
-            (
-                ('open', None),
-                ('pick', None)
-            )
-        )
+        super().__init__(name, 'pick')
+
+
 
 @behavior
 class Open(ActorBT):

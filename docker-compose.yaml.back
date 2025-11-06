@@ -1,0 +1,20 @@
+services:
+  lime_simul_demo:
+    image: course_lime-image
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        ROS_DISTRO: humble
+    network_mode: host
+    ipc: host
+    environment:
+      - DISPLAY=${DISPLAY}
+    volumes:
+      - ./pytwb_ws:/root/pytwb_ws:rw
+      - ./bin:/root/bin:rw
+      - ./roscommon:/root/roscommon:rw
+      - $HOME/.Xauthority:/root/.Xauthority
+      - ./practice_ws:/root/practice_ws:rw
+    command: xterm -fn 12X24 -display ${DISPLAY} -T 'cm main'
+
