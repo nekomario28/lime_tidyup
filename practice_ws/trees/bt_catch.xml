@@ -1,7 +1,7 @@
 <root>
     <BehaviorTree ID="bt_catch">
     <Sequence name="main">
-        <SetDetector name="set coke_detector" func_name="my_dtcs.d_coke"/>
+        <SetDetector name="set coke_detector" func_name="my_dtcs.d_coke" id="None"/>
         <Watch name="watch_coke"/>
         <GetObjFront name="get_coke_front"/>
         <GoToPose name="move_to_place_loc"/>
