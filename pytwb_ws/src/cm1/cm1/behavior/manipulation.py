@@ -58,13 +58,6 @@ class Open(ActorBT):
         super().__init__(name, 'open')
         
 @behavior
-class PickUp(ActorBT):
-    desc = 'lift the end effector straight up before returning home'
-
-    def __init__(self, name, node):
-        super().__init__(name, 'pick_up')
-
-@behavior
 class ArmHome(ActorBT):
     desc = 'set arm home position'
 
