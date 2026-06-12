@@ -1,9 +1,1 @@
-#!/bin/bash
-source ~/turtlebot3_ws/install/setup.bash
-
-ros2 launch turtlebot3_lime_bringup fake.launch.py start_rviz:=false &
-LAUNCH_PID=$!
-
-trap 'kill -INT $LAUNCH_PID 2>/dev/null; wait $LAUNCH_PID' EXIT
-
-cd ~/OneStageROS && npm run start
+ros2 launch turtlebot3_lime_bringup gazebo.launch.py world:=/root/turtlebot3_ws/turtlebot3_lime/turtlebot3_lime_bringup/worlds/empty_world.model

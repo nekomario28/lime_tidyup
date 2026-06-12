@@ -1653,9 +1653,5 @@
     </gui>
     <plugin name="gazebo_link_attacher" filename="libgazebo_link_attacher.so"/>
     <plugin name="gazebo_ros_state" filename="libgazebo_ros_state.so"/>
-    <model name='spawn'>
-      <static>true</static>
-      <pose>-0.6500 -0.6500 0 0 0 0.000000</pose>
-    </model>
   </world>
 </sdf>

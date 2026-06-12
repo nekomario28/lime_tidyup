@@ -104,14 +104,36 @@ class ManipulatorNetwork(SubNet):
     # open gripper
     @actor
     def open(self):
-        gripper = self.get_value('gripper')
-        gripper.open()
-        wait_until_executed(gripper)
+        self.run_actor('open_gripper')
+        try: self.run_actor("detach")
+        except TypeError: pass
+        
+        self.run_actor('sleep', 2)
         return True
 
     # close gripper
     @actor
     def close(self):
+        self.run_actor('close_gripper')
+        self.run_actor("attach")
+        return True
+    
+    @actor
+    def full_close(self):
+        gripper = self.get_value('gripper')
+        gripper.move_to_position(-0.01)
+        self.run_actor('sleep', 2)
+        return True
+
+    @actor
+    def open_gripper(self):
+        gripper = self.get_value('gripper')
+        gripper.open()
+        wait_until_executed(gripper)
+        return True
+
+    @actor
+    def close_gripper(self):
         gripper = self.get_value('gripper')
         gripper.close()
         wait_until_executed(gripper)
@@ -272,3 +294,10 @@ class ManipulatorNetwork(SubNet):
         joint = [radians(j1), radians(j2), radians(j3), radians(j4), radians(j5), radians(j6)]
         self.run_actor('move_joint', *joint)
         return True
+    
+# register_pose {register_name} j1 j2 j3 j4 j5 j6
+# で動かせるactor登録actorがあったら良いのになあ
+# 尚、登録機はactorでなくてもよい。。。けど、まあactorが良いか。
+# 名前被りは"名前被りだ！"って言えるように、全部の関数名を正規表現とかでリストにしたい。つまるところアームだけで良い。
+# behaviorにはならんが。
+# そういえば、勝手にmigrationしてくれるやつを作りたい。

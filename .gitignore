@@ -1,14 +1,44 @@
+# Python bytecode/cache
 roscommon/
 project/test_ws/
-shift_control.csv
-pick_control.csv
-#practice_ws/
-
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[cod]
 *$py.class
 
+# Python tooling caches
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.cache/
+.coverage
+coverage.xml
+htmlcov/
+
+# Build/package caches
+build/
+dist/
+*.egg-info/
+yolo_ws/install/
+yolo_ws/log/
+*.cache
+
+# ROS/colcon build artifacts
+install/
+log/
+
+# ML datasets, training outputs, and model weights
+yolo_ws/datasets/
+yolo_ws/runs/
+yolo_ws/pose_label_viz/
+yolo_ws/pose_predict_viz/
+yolo_ws/pose_predict_viz_sample*/
+*.pt
+*.pth
+
+# Local editor/system files
+.vscode/
+.DS_Store
 # C extensions
 *.so
 
@@ -163,3 +193,27 @@ cython_debug/
 #  and can be added to the global gitignore or merged into this file.  For a more nuclear
 #  option (not recommended) you can uncomment the following to ignore the entire idea folder.
 #.idea/
+
+# ROS2
+build/
+install/
+log/
+
+# 学習データ（必要なければ）
+yolo_ws/datasets/
+
+# Python
+__pycache__/
+*.pyc
+
+# Windowsの付加ファイル
+# ADS は "name:Zone.Identifier" という形で届くため、拡張子パターンだけでは
+# 一致しない（実測: command.log:Zone.Identifier が追跡されたままだった）
+*.Zone.Identifier
+*:Zone.Identifier
+
+# The actor links every tree in practice_ws/trees into cm1/trees when it starts
+# (cm1/app_main.py runs make_symbolic_link), so a tree that is not committed
+# shows up here as an untracked symlink nobody created by hand. ccc2 is created
+# on demand that way; the links that belong to the repo stay tracked.
+/pytwb_ws/src/cm1/cm1/trees/ccc2.xml
