@@ -1,3 +1,2 @@
 source ~/turtlebot3_ws/install/setup.bash
-source ~/webots_ws/install/setup.bash
-ros2 launch turtlebot3_lime_webots robot_launch.py world:=sim_house.wbt
+ros2 launch turtlebot3_lime_bringup gazebo.launch.py x_pose:=0 y_pose:=0 world:=/project/resource/sim_house.world
