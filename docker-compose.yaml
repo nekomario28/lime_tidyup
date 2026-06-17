@@ -1,6 +1,6 @@
 services:
-  lime_simul_demo:
-    image: course_lime-image
+  lime_simul_demo_yuu:
+    image: course_lime-image_yuu
     build:
       context: .
       dockerfile: Dockerfile
@@ -9,9 +9,7 @@ services:
     # network_mode: host
     privileged: true
     ipc: host
-    ports: 
-      - "127.0.0.1:3000:3000"
-      - "127.0.0.1:8080:8080"
+    privileged: true
     environment:
       - DISPLAY=${DISPLAY}
       - WAYLAND_DISPLAY=${WAYLAND_DISPLAY}
