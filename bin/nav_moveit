@@ -1,0 +1,1 @@
+ros2 launch turtlebot3_lime_bringup moveit_navigation.launch.py map_yaml_file:=/root/practice_ws/maps/oc_get.yaml.yaml
