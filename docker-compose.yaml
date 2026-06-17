@@ -1,6 +1,6 @@
 services:
-  lime_simul_demo:
-    image: course_lime-image
+  lime_simul_demo_yuu:
+    image: course_lime-image_yuu
     build:
       context: .
       dockerfile: Dockerfile
@@ -8,6 +8,7 @@ services:
         ROS_DISTRO: humble
     network_mode: host
     ipc: host
+    privileged: true
     environment:
       - DISPLAY=${DISPLAY}
     volumes:
