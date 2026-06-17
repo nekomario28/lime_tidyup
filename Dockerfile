@@ -15,6 +15,7 @@ RUN pip3 uninstall -y numpy
 RUN pip3 install numpy==1.26.4
 RUN pip3 install pyquaternion matplotlib transforms3d simple-pid \
  numpy-quaternion pyrealsense2
+RUN pip install "opencv-python<4.10" "opencv-contrib-python<4.10" "numpy==1.26.4"
 
 #RUN pip3 install -U numpy
 
@@ -53,12 +54,12 @@ RUN echo "source /opt/ros/humble/setup.bash" >> .bashrc
 RUN echo "source /project/lib_ws/install/setup.bash" >> .bashrc
 RUN echo "source /usr/share/gazebo/setup.sh" >> .bashrc
 RUN echo "source ~/turtlebot3_ws/install/setup.bash" >> .bashrc
-RUN echo "export ROS_LOCALHOST_ONLY=1" >> .bashrc
-RUN echo "export CYCLONEDDS_URI=/project/resource/cyclonedds.xml" >> .bashrc
+RUN echo "export CYCLONEDDS_URI=/root/bin/cyclonedds.xml" >> .bashrc
 RUN echo "export GAZEBO_PLUGIN_PATH=$GAZEBO_PLUGIN_PATH:/project/lib_ws/build/IFRA_LinkAttacher:/opt/ros/humble/lib" >> .bashrc
 RUN echo "export RMW_IMPLEMENTATION=rmw_cyclonedds_cpp" >> .bashrc
 RUN echo 'export GAZEBO_MODEL_PATH=$GAZEBO_MODEL_PATH:/opt/ros/humble/share/turtlebot3_gazebo/models:/root/practice_ws/worlds' >> .bashrc
 RUN echo 'PATH=$PATH:/root/bin' >> .bashrc
+RUN echo "export ROS_DOMAIN_ID=20" >> .bashrc
 
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
