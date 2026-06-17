@@ -88,23 +88,36 @@ class ManipulatorNetwork(SubNet):
         return True         
 #        return arm.wait_until_executed() # Never use this
     
+    # # open gripper
+    # @actor
+    # def open(self):
+    #     self.run_actor('open_gripper')
+    #     try: self.run_actor("detach")
+    #     except TypeError: pass
+        
+    #     self.run_actor('sleep', 2)
+    #     return True
+
+    # # close gripper
+    # @actor
+    # def close(self):
+    #     self.run_actor('close_gripper')
+    #     self.run_actor("attach")
+    #     return True
+    
     # open gripper
     @actor
     def open(self):
         self.run_actor('open_gripper')
-        try: self.run_actor("detach")
-        except TypeError: pass
-        
         self.run_actor('sleep', 2)
-        return True
 
     # close gripper
     @actor
     def close(self):
-        self.run_actor('close_gripper')
-        self.run_actor("attach")
-        return True
-    
+        self.run_actor('full_close')
+
+
+
     @actor
     def full_close(self):
         gripper = self.get_value('gripper')

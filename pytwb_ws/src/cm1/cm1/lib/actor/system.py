@@ -170,6 +170,15 @@ class Tb3NavigationSystem(SubSystem):
 #        return (result.status == GoalStatus.STATUS_SUCCEEDED)
         return True
 
+# #       2026-3-18 taga 追加 小刻み改善用判定
+
+#     @actor
+#     def control(self, x1, x2, y1, y2, theta1, theta2):
+#         self.x1 = x1
+
+#         #rはロボットの現在の座標が欲しい。その座標がある一定の範囲にあれば、動きを止める
+#         if x1 <= r <= x2 and
+
     @actor
     def goto_deg(self, x, y, degree):
         rad = radians(degree)

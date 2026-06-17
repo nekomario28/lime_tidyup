@@ -123,6 +123,7 @@ class Tools(SubNet):
 
     @actor 
     def shot(self, fpath):
+        print("shot start")
         cv_image = self.run_actor('pic_receiver')
         pt = fpath + ".png"
         cv2.imwrite(pt, cv_image)
