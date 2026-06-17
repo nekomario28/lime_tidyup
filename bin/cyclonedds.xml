@@ -1,0 +1,20 @@
+<CycloneDDS>
+  <Domain>
+    <General>
+      <AllowMulticast>false</AllowMulticast>
+      <EnableMulticastLoopback>false</EnableMulticastLoopback>
+      <MaxMessageSize>65500B</MaxMessageSize>
+    </General>
+    <Discovery>
+      <ParticipantIndex>auto</ParticipantIndex>
+      <MaxAutoParticipantIndex>100</MaxAutoParticipantIndex>
+      <Peers>
+              <Peer Address="192.168.76.29"/>
+              <Peer Address="192.168.128.217"/>
+	      <Peer Address="192.168.11.101"/>
+	      <peer Address="192.168.11.107"/>
+              <Peer Address="localhost"/>
+      </Peers>
+    </Discovery>
+  </Domain>
+</CycloneDDS>

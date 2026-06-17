@@ -8,6 +8,7 @@ import cv2
 import pyrealsense2 as rs
 
 import sys
+import py_trees
 
 detector_dir = '/root/practice_ws/images'
 if detector_dir not in sys.path:
@@ -416,3 +417,30 @@ class CognitiveNetwork(SubNet):
     @actor
     def use_func(self):
         return self.func()
+
+
+
+
+    @actor
+    def qr_scan(self):
+        while True:
+            input_img = self.run_actor('pic_receiver')
+            detector = cv2.QRCodeDetector()
+            data = detector.detectAndDecode(input_img)
+            qr_string = data[0]
+            if qr_string == "":
+                print("No QR code detected, retrying...")
+                self.run_actor('sleep', 1)
+                continue
+            elif qr_string in ["A", "B", "C"]:
+                print(f"QR code {qr_string} detected, setting locations.")
+                # qr_string = "A"
+                bb = py_trees.blackboard.Blackboard()
+                self.bb = bb
+                bb.set("latest_qr", qr_string)
+                print(qr_string)
+                break
+            else:
+                print(f"Unexpected QR code detected: {qr_string}, retrying...")
+                self.run_actor('sleep', 1)
+            

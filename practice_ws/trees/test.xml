@@ -1,0 +1,46 @@
+<root>
+    <BehaviorTree ID="test">
+    <Sequence name="main">
+
+    <!-- start -->
+
+        <SetDestination name="set_target" value="[(0, 0,90)]"/>
+        <GoToPose name="move_to_place_loc"/>
+
+<!-- 1st Waypoint -->
+
+        <SetDestination name="set_target" value="[(0, 2.75,90)]"/>
+        <GoToPose name="move_to_place_loc"/>
+
+
+
+<!-- C -->
+
+        <SetDestination name="set_target" value="[(3, 2.75,0)]"/>
+        <GoToPose name="move_to_place_loc" Pose="C"/>
+ 
+<!-- B -->
+<!-- 
+        <SetDestination name="set_target" value="[(3.25, 1.5,0)]"/>
+        <GoToPose name="move_to_place_loc"/> -->
+
+<!-- A -->
+
+        <!-- <SetDestination name="set_target" value="[(3.25, -0.25,0)]"/>
+        <GoToPose name="move_to_place_loc"/> -->
+
+
+
+<!-- 3rd Waypoint -->
+
+        <SetDestination name="set_target" value="[(0, 2.75,180)]"/>
+        <GoToPose name="move_to_place_loc"/>
+
+<!-- Reset -->
+
+        <SetDestination name="set_target" value="[(0, 0,90)]"/>
+        <GoToPose name="move_to_place_loc"/>
+
+    </Sequence>
+    </BehaviorTree>
+</root>

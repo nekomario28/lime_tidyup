@@ -1,0 +1,58 @@
+<root>
+    <BehaviorTree ID="qr">
+    <Sequence name="main">
+
+<!-- <Scan QR> -->
+        <Arm0 name="banzai"/>
+        <Open name="hiraku"/>
+        <QRScan name="qr_scan"/>
+        
+        
+        
+        <Close name="tukamu"/>
+        <Sleep name="sleep" time="[3]"/>
+
+        <ArmHome name="one_pose"/>
+        
+
+<!-- start -->
+
+        <!-- <SetDestination name="set_target" value="[(0, 0,90)]"/>
+        <GoToPose name="move_to_place_loc"/> -->
+
+<!-- 1st Waypoint
+
+        <SetDestination name="set_target" value="[(0.75, -1.0 ,90)]"/>
+        <GoToPose name="move_to_place_loc"/> -->
+
+
+<!-- From QR -->
+
+        <!-- <SetLocQR name="qr_scan"/> -->
+        <SetLocQR name="set_loc_qr"/>
+        <GoToPose name="move_to_place_loc"/>
+
+        <!-- <Arm0 name="banzai"/> -->
+        <Sleep name="sleep" time="[1]"/>
+        <Place name="oku"/>
+        <ArmHome name="one_pose"/>
+        
+        <Mini_Walk name="mini_walk" target="[-20]"/>
+
+        <SetDestination name="set_target" value="[(-0.17, -0.07 ,0)]"/>
+        <GoToPose name="move_to_place_loc"/>
+
+
+<!-- 3rd Waypoint -->
+<!-- 
+        <SetDestination name="set_target" value="[(0, 2.75,180)]"/>
+        <GoToPose name="move_to_place_loc"/> -->
+
+<!-- Reset -->
+
+        <!-- <SetDestination name="set_target" value="[(0, 0,90)]"/>
+        <GoToPose name="move_to_place_loc"/> -->
+
+    </Sequence>
+    </BehaviorTree>
+</root>
