@@ -1,0 +1,37 @@
+FROM osrf/ros:humble-desktop-full
+
+SHELL ["/bin/bash", "-c"]
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    git \
+    xterm \
+    python3-pip \
+    python3-colcon-common-extensions \
+    ros-humble-rclpy \
+    ros-humble-sensor-msgs \
+    ros-humble-std-msgs \
+    ros-humble-geometry-msgs \
+    ros-humble-cv-bridge \
+    ros-humble-rmw-cyclonedds-cpp \
+    && rm -rf /var/lib/apt/lists/*
+
+RUN pip3 install --no-cache-dir \
+    ultralytics \
+    opencv-python \
+    numpy
+
+WORKDIR /root/yolo_ws
+RUN mkdir -p src
+
+RUN echo "source /opt/ros/humble/setup.bash" >> /root/.bashrc
+RUN echo "if [ -f /root/yolo_ws/install/setup.bash ]; then source /root/yolo_ws/install/setup.bash; fi" >> /root/.bashrc
+RUN echo "export ROS_DOMAIN_ID=20" >> /root/.bashrc
+RUN echo "export RMW_IMPLEMENTATION=rmw_cyclonedds_cpp" >> /root/.bashrc
+
+RUN echo "export ROS_DOMAIN_ID=20" >> ~/.bashrc
+RUN echo "export RMW_IMPLEMENTATION=rmw_cyclonedds_cpp" >> ~/.bashrc
+RUN echo "export CYCLONEDDS_URI=/root/bin/cyclonedds.xml" >> ~/.bashrc
+
+WORKDIR /root/yolo_ws
+
+CMD ["bash"]
