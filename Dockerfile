@@ -7,14 +7,14 @@ SHELL ["/bin/bash", "-c"]
 # RUN echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/ros-archive-keyring.gpg] http://packages.ros.org/ros2/ubuntu $(. /etc/os-release && echo $UBUNTU_CODENAME) main" | tee /etc/apt/sources.list.d/ros2.list > /dev/null
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
- git python3-pip vim eog xterm less wget
+ git python3-pip vim eog xterm less wget portaudio19-dev
 
 RUN apt-get update && apt install -y python3-colcon-common-extensions
 
 RUN pip3 uninstall -y numpy
 RUN pip3 install numpy==1.26.4
 RUN pip3 install pyquaternion matplotlib transforms3d simple-pid \
- numpy-quaternion pyrealsense2
+ numpy-quaternion pyrealsense2 SpeechRecognition pyaudio
 RUN pip install "opencv-python<4.10" "opencv-contrib-python<4.10" "numpy==1.26.4"
 
 #RUN pip3 install -U numpy

@@ -11,11 +11,12 @@ services:
     privileged: true
     environment:
       - DISPLAY=${DISPLAY}
+      - XAUTHORITY=/root/.Xauthority
     volumes:
       - ./pytwb_ws:/root/pytwb_ws:rw
       - ./bin:/root/bin:rw
       - ./roscommon:/root/roscommon:rw
-      - $HOME/.Xauthority:/root/.Xauthority
+      - ${XAUTHORITY:-${HOME}/.Xauthority}:/root/.Xauthority:ro
       - ./practice_ws:/root/practice_ws:rw
-    command: xterm -fn 12X24 -display ${DISPLAY} -T 'cm main'
+    command: xterm -fn 12X24 -T 'cm main'
 
