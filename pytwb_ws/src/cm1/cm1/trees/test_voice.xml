@@ -1,0 +1,9 @@
+<root>
+    <BehaviorTree ID="test_voice">
+    <Sequence name="main">
+        <VoiceRecognition name="listen" language="ja-JP"/>
+        <ProcessVoiceCommand name="process"/>
+        <GoToPose name="go"/>
+    </Sequence>
+    </BehaviorTree>
+</root>

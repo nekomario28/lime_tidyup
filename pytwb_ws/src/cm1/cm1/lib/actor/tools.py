@@ -90,6 +90,59 @@ class Tools(SubNet):
         return input()
 
     @actor
+    def voice_recognize(self, language='ja-JP', key='recognized_text'):
+        import speech_recognition as sr
+        import py_trees
+
+        recognizer = sr.Recognizer()
+        microphone = sr.Microphone()
+
+        with microphone as source:
+            print('Listening...')
+            recognizer.adjust_for_ambient_noise(source, duration=0.5)
+            try:
+                audio = recognizer.listen(source, timeout=10, phrase_time_limit=15)
+            except sr.WaitTimeoutError:
+                print('No speech detected (timeout)')
+                return False
+
+        try:
+            text = recognizer.recognize_google(audio, language=language)
+            py_trees.blackboard.Blackboard().set(key, text)
+            return text
+        except sr.UnknownValueError:
+            print('Could not understand audio')
+            return False
+        except sr.RequestError as e:
+            print(f'Speech recognition service error: {e}')
+            return False
+
+    @actor
+    def voice_process(self, key='recognized_text'):
+        import math
+        import py_trees
+        from lib.voice_command import process_voice_text
+
+        bb = py_trees.blackboard.Blackboard()
+        if not bb.exists(key):
+            print('[voice] no recognized text on blackboard')
+            return False
+
+        result = process_voice_text(bb.get(key))
+        print(f'[voice] recognized: {result["text"]}')
+
+        destination = result["destination"]
+        if destination:
+            x, y, theta = result["pose"]
+            print(f'[voice] command: go to {destination} ({x}, {y}, {math.degrees(theta):.0f} deg)')
+            bb.set('voice_destination', destination)
+            bb.set('target_pose', [x, y, theta])
+            return destination
+
+        print('[voice] no movement command detected')
+        return False
+
+    @actor
     def angle(self):
         print(f'assumed:{degrees(atan2(0.5, 1.0))}')
         x, y, angle = self.run_actor('object_loc')
