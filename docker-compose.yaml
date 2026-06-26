@@ -19,3 +19,27 @@ services:
       - ./practice_ws:/root/practice_ws:rw
     command: xterm -fn 12X24 -display ${DISPLAY} -T 'cm main'
 
+
+#新しくYOLOのために内容追加
+
+
+
+  yolo:
+    image: yolo_ros2-image_yuu
+    build:
+      context: .
+      dockerfile: Dockerfile.yolo
+    container_name: yolo_ros2_yuu
+    network_mode: host
+    ipc: host
+    privileged: true
+    environment:
+      - DISPLAY=${DISPLAY}
+      - ROS_DOMAIN_ID=20
+      - RMW_IMPLEMENTATION=rmw_cyclonedds_cpp
+    volumes:
+      - ./yolo_ws:/root/yolo_ws:rw
+      - ./bin:/root/bin:rw
+      - $HOME/.Xauthority:/root/.Xauthority
+    command: xterm -fn 12X24 -display ${DISPLAY} -T 'yolo'
+
