@@ -90,12 +90,32 @@ class Tools(SubNet):
         return input()
 
     @actor
-    def voice_recognize(self, language='ja-JP', key='recognized_text'):
+    def voice_list_mics(self):
+        from lib.voice_mic import print_microphones
+        print_microphones()
+        return True
+
+    @actor
+    def voice_recognize(self, language='ja-JP', key='recognized_text', device_index=-1):
         import speech_recognition as sr
         import py_trees
+        from lib.voice_mic import print_microphones, select_microphone_index
+
+        if device_index is not None and int(device_index) < 0:
+            device_index = select_microphone_index()
+        else:
+            device_index = select_microphone_index(int(device_index))
+
+        print_microphones()
+        print(f'[voice] using microphone index: {device_index}')
 
         recognizer = sr.Recognizer()
-        microphone = sr.Microphone()
+        try:
+            microphone = sr.Microphone(device_index=device_index)
+        except OSError as e:
+            print(f'[voice] microphone open failed: {e}')
+            print('[voice] check docker audio settings and run voice_list_mics')
+            return False
 
         with microphone as source:
             print('Listening...')
