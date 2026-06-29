@@ -12,11 +12,18 @@ services:
     environment:
       - DISPLAY=${DISPLAY}
       - XAUTHORITY=/root/.Xauthority
+      - PULSE_SERVER=unix:${XDG_RUNTIME_DIR}/pulse/native
+      - XDG_RUNTIME_DIR=${XDG_RUNTIME_DIR}
+    devices:
+      - /dev/snd:/dev/snd
+    group_add:
+      - audio
     volumes:
       - ./pytwb_ws:/root/pytwb_ws:rw
       - ./bin:/root/bin:rw
       - ./roscommon:/root/roscommon:rw
       - ${XAUTHORITY:-${HOME}/.Xauthority}:/root/.Xauthority:ro
+      - ${XDG_RUNTIME_DIR}/pulse:${XDG_RUNTIME_DIR}/pulse:ro
       - ./practice_ws:/root/practice_ws:rw
     command: xterm -fn 12X24 -T 'cm main'
 

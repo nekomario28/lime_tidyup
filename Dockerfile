@@ -7,7 +7,8 @@ SHELL ["/bin/bash", "-c"]
 # RUN echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/ros-archive-keyring.gpg] http://packages.ros.org/ros2/ubuntu $(. /etc/os-release && echo $UBUNTU_CODENAME) main" | tee /etc/apt/sources.list.d/ros2.list > /dev/null
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
- git python3-pip vim eog xterm less wget portaudio19-dev
+ git python3-pip vim eog xterm less wget portaudio19-dev \
+ alsa-utils pulseaudio-utils libasound2-plugins
 
 RUN apt-get update && apt install -y python3-colcon-common-extensions
 
