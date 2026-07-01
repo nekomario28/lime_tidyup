@@ -8,15 +8,23 @@ SHELL ["/bin/bash", "-c"]
 # RUN echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/ros-archive-keyring.gpg] http://packages.ros.org/ros2/ubuntu $(. /etc/os-release && echo $UBUNTU_CODENAME) main" | tee /etc/apt/sources.list.d/ros2.list > /dev/null
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
- git python3-pip vim eog xterm less wget portaudio19-dev \
- alsa-utils pulseaudio-utils libasound2-plugins
+    git python3-pip vim eog xterm less wget portaudio19-dev \
+    alsa-utils pulseaudio-utils libasound2-plugins
 
 RUN apt-get update && apt install -y python3-colcon-common-extensions
 
 RUN pip3 uninstall -y numpy
 RUN pip3 install numpy==1.26.4
 RUN pip3 install pyquaternion matplotlib transforms3d simple-pid \
- numpy-quaternion pyrealsense2 SpeechRecognition pyaudio
+    numpy-quaternion pyrealsense2 SpeechRecognition pyaudio sympy
+
+RUN apt-get update && apt-get install -y --no-install-recommends ffmpeg espeak-ng
+# Whisper is optional: torch/openai-whisper can fail on some environments due to size/network.
+# Keep the image buildable; voice_recognize falls back to Google SpeechRecognition if Whisper is unavailable.
+RUN pip3 install --no-cache-dir --index-url https://download.pytorch.org/whl/cpu torch \
+    && pip3 install --no-cache-dir openai-whisper \
+    && python3 -c "import whisper; whisper.load_model('tiny')" \
+    || echo "[voice] WARNING: openai-whisper install skipped; build continues"
 RUN pip install "opencv-python<4.10" "opencv-contrib-python<4.10" "numpy==1.26.4"
 
 RUN python3 -m pip install --no-cache-dir --ignore-installed \
@@ -78,9 +86,9 @@ COPY ./project/resource/pymoveit2_setup.py setup.py
 # Build the base Colcon workspace, installing dependencies first.
 WORKDIR /project/lib_ws
 RUN source /opt/ros/${ROS_DISTRO}/setup.bash \
- && apt-get update -y \
- && rosdep install --from-paths src --ignore-src --rosdistro $ROS_DISTRO -y \
- && colcon build --symlink-install
+    && apt-get update -y \
+    && rosdep install --from-paths src --ignore-src --rosdistro $ROS_DISTRO -y \
+    && colcon build --symlink-install
 
 WORKDIR /project
 COPY ./project .
@@ -102,32 +110,16 @@ RUN echo "export ROS_DOMAIN_ID=20" >> .bashrc
 
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
- ros-humble-rmw-cyclonedds-cpp \
- ros-humble-navigation2 \
- ros-humble-nav2-bringup
+    ros-humble-rmw-cyclonedds-cpp \
+    ros-humble-gazebo-* ros-humble-navigation2 \
+    ros-humble-nav2-bringup
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
- ros-humble-dynamixel-sdk ros-humble-ros2-control ros-humble-ros2-controllers ros-humble-gripper-controllers \
- ros-humble-moveit ros-humble-moveit-servo ros-humble-cartographer \
- ros-humble-realsense2-description \
- ros-humble-cartographer-ros ros-humble-gripper-controllers \
- ros-humble-tf-transformations ros-humble-rosbridge-suite
-
-RUN F=/opt/ros/${ROS_DISTRO}/local/lib/python3.10/dist-packages/rosbridge_library/internal/message_conversion.py \
- && grep -q 'return list(standard_b64decode(msg))' "$F" \
- && sed -i 's/return list(standard_b64decode(msg))/return array.array("B", standard_b64decode(msg))/' "$F"
-
-RUN sed -i -E 's/^([[:space:]]*max_laser_range:[[:space:]]*)[0-9.]+/\13.4/' \
-    /opt/ros/humble/share/slam_toolbox/config/mapper_params_*.yaml
-
-RUN apt-get update && apt-get install -y --no-install-recommends \
- ros-humble-webots-ros2 \
- ros-humble-webots-ros2-driver \
- ros-humble-webots-ros2-control \
- ros-humble-webots-ros2-importer
-RUN sed -i \
-    "s/return 'microsoft-standard' in uname().release\$/return 'microsoft-standard' in uname().release and shutil.which('wslpath') is not None/" \
-    /opt/ros/humble/local/lib/python3.10/dist-packages/webots_ros2_driver/utils.py
+    ros-humble-dynamixel-sdk ros-humble-ros2-control ros-humble-ros2-controllers ros-humble-gripper-controllers \
+    ros-humble-moveit ros-humble-moveit-servo ros-humble-cartographer \
+    ros-humble-realsense2-description \
+    ros-humble-cartographer-ros ros-humble-gripper-controllers \
+    ros-humble-tf-transformations
 
 RUN mkdir -p /root/turtlebot3_ws/src
 WORKDIR /root/turtlebot3_ws
@@ -154,8 +146,8 @@ RUN sed -i 's/^\(\s*base_frame_id:\s*\)"base_footprint"/\1"base_link"/' \
 WORKDIR /root/turtlebot3_ws
 
 RUN source /opt/ros/${ROS_DISTRO}/setup.bash \
-&& colcon build --symlink-install
-WORKDIR /root/turtlebot3_ws/install 
+    && colcon build --symlink-install
+WORKDIR /root/turtlebot3_ws/install
 COPY ./project/resource/turtlebot3_lime.urdf.xacro turtlebot3_lime_description/share/turtlebot3_lime_description/urdf
 # COPY ./project/resource/gazebo2.launch.py turtlebot3_lime_bringup/share/turtlebot3_lime_bringup/launch
 # COPY ./project/resource/moveit_gazebo2.launch.py turtlebot3_lime_moveit_config/share/turtlebot3_lime_moveit_config/launch
