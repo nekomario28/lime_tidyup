@@ -1,0 +1,15 @@
+<root>
+    <BehaviorTree ID="test">
+    <Sequence name="main">
+    <!-- start -->
+
+        <SetDestination name="set_target" value="[(0, -0.025 ,0)]"/>
+        <GoToPose name="move_to_place_loc"/>
+
+    </Sequence>
+    </BehaviorTree>
+</root>
+
+<!-- C [1, -1, 180] -->
+<!-- B [0.425, -1, 180] -->
+<!-- C [-0.8, -1, 180] -->

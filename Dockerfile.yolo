@@ -15,11 +15,11 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     ros-humble-rmw-cyclonedds-cpp \
     && rm -rf /var/lib/apt/lists/*
 
-RUN pip3 install --no-cache-dir \
+RUN python3 -m pip install --no-cache-dir \
     ultralytics \
+    roboflow \
     opencv-python \
     numpy
-
 WORKDIR /root/yolo_ws
 RUN mkdir -p src
 

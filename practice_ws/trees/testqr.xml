@@ -1,0 +1,35 @@
+<root>
+    <BehaviorTree ID="testqr">
+    <Sequence name="main">
+
+    <!-- start -->
+<!-- 
+        <SetDestination name="set_target" value="[(0, -0.025 ,0)]"/>
+        <GoToPose name="move_to_place_loc"/> -->
+
+<!-- 1st Waypoint -->
+
+        <!-- <SetDestination name="set_target" value="[(0, 2.75,90)]"/>
+        <GoToPose name="move_to_place_loc"/> -->
+
+
+<!-- From QR -->
+
+        <QRScan name="qr_scan"/>
+        <SetLocQR name="qr_scan"/>
+        <GoToPose name="move_to_place_loc"/>
+
+
+<!-- 3rd Waypoint -->
+
+        <!-- <SetDestination name="set_target" value="[(0, 2.75,180)]"/>
+        <GoToPose name="move_to_place_loc"/> -->
+
+<!-- Reset -->
+
+        <SetDestination name="set_target" value="[(0, -0.025 ,0)]"/>
+        <GoToPose name="move_to_place_loc"/>
+
+    </Sequence>
+    </BehaviorTree>
+</root>

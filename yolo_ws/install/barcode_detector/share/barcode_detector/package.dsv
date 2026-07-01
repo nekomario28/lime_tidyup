@@ -1,0 +1,9 @@
+source;share/barcode_detector/hook/pythonpath.ps1
+source;share/barcode_detector/hook/pythonpath.dsv
+source;share/barcode_detector/hook/pythonpath.sh
+source;share/barcode_detector/hook/ament_prefix_path.ps1
+source;share/barcode_detector/hook/ament_prefix_path.dsv
+source;share/barcode_detector/hook/ament_prefix_path.sh
+source;../../build/barcode_detector/share/barcode_detector/hook/pythonpath_develop.ps1
+source;../../build/barcode_detector/share/barcode_detector/hook/pythonpath_develop.dsv
+source;../../build/barcode_detector/share/barcode_detector/hook/pythonpath_develop.sh
