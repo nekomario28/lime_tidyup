@@ -22,7 +22,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends ffmpeg espeak-n
 # Keep the image buildable; voice_recognize falls back to Google SpeechRecognition if Whisper is unavailable.
 RUN pip3 install --no-cache-dir --index-url https://download.pytorch.org/whl/cpu torch \
     && pip3 install --no-cache-dir openai-whisper \
-    && python3 -c "import whisper; whisper.load_model('tiny')" \
+    && python3 -c "import whisper; whisper.load_model('base')" \
     || echo "[voice] WARNING: openai-whisper install skipped; build continues"
 RUN pip install "opencv-python<4.10" "opencv-contrib-python<4.10" "numpy==1.26.4"
 
