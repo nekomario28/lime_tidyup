@@ -4,7 +4,11 @@
             <Sequence name="main">
                 <Retry name="listen_retry" num_failures="[999]">
                     <Sequence name="listen_and_parse">
-                        <VoiceRecognition name="listen" language="ja" />
+                        <VoiceRecognition
+                            name="listen"
+                            language="ja"
+                            model="base"
+                        />
                         <ProcessVoiceCommand name="process" />
                     </Sequence>
                 </Retry>
