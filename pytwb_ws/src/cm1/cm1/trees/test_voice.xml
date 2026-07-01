@@ -1,7 +1,7 @@
 <root>
     <BehaviorTree ID="test_voice">
     <Sequence name="main">
-        <VoiceRecognition name="listen" language="ja" />
+        <VoiceRecognition name="listen" language="ja" model="base" />
         <ProcessVoiceCommand name="process" />
         <GoToPose name="go" />
     </Sequence>

@@ -105,8 +105,52 @@ class Tools(SubNet):
         return True
 
     @actor
+    def voice_test_mic(self, seconds=3, device_index=-1):
+        import audioop
+        import time
+
+        import pyaudio
+        from lib.voice_mic import print_microphones, select_microphone_index
+
+        if device_index is not None and int(device_index) < 0:
+            device_index = select_microphone_index()
+        else:
+            device_index = select_microphone_index(int(device_index))
+
+        print_microphones()
+        print(f"[voice] testing microphone index: {device_index}")
+        pa = pyaudio.PyAudio()
+        stream = None
+        try:
+            stream = pa.open(
+                format=pyaudio.paInt16,
+                channels=1,
+                rate=16000,
+                input=True,
+                input_device_index=device_index,
+                frames_per_buffer=1024,
+            )
+            end_time = time.time() + float(seconds)
+            max_rms = 0
+            while time.time() < end_time:
+                data = stream.read(1024, exception_on_overflow=False)
+                rms = audioop.rms(data, 2)
+                max_rms = max(max_rms, rms)
+                print(f"[voice] rms={rms}")
+            print(f"[voice] max_rms={max_rms}")
+            return max_rms > 0
+        except Exception as e:
+            print(f"[voice] microphone test failed: {e}")
+            return False
+        finally:
+            if stream is not None:
+                stream.stop_stream()
+                stream.close()
+            pa.terminate()
+
+    @actor
     def voice_recognize(
-        self, language="ja", key="recognized_text", device_index=-1, model="tiny"
+        self, language="ja", key="recognized_text", device_index=-1, model="base"
     ):
         import tempfile
 
@@ -123,8 +167,12 @@ class Tools(SubNet):
         print(f"[voice] mic={device_index}  engine=whisper:{model}")
 
         recognizer = sr.Recognizer()
+        recognizer.dynamic_energy_threshold = True
+        recognizer.pause_threshold = 0.8
+        recognizer.phrase_threshold = 0.3
+        recognizer.non_speaking_duration = 0.4
         try:
-            microphone = sr.Microphone(device_index=device_index)
+            microphone = sr.Microphone(device_index=device_index, sample_rate=16000)
         except OSError as e:
             print(f"[voice] microphone open failed: {e}")
             print("[voice] check docker audio settings and run voice_list_mics")
@@ -134,7 +182,7 @@ class Tools(SubNet):
             print("Listening...")
             recognizer.adjust_for_ambient_noise(source, duration=0.5)
             try:
-                audio = recognizer.listen(source, timeout=10, phrase_time_limit=15)
+                audio = recognizer.listen(source, timeout=10, phrase_time_limit=6)
             except sr.WaitTimeoutError:
                 print("No speech detected (timeout)")
                 return False
@@ -151,7 +199,15 @@ class Tools(SubNet):
                 f.write(audio.get_wav_data())
                 tmp_path = f.name
             try:
-                result = whisper_model.transcribe(tmp_path, language=language)
+                result = whisper_model.transcribe(
+                    tmp_path,
+                    language=language,
+                    task="transcribe",
+                    fp16=False,
+                    temperature=0.0,
+                    condition_on_previous_text=False,
+                    initial_prompt="これはロボットへの短い日本語音声命令です。例: Aに行って。Bへ移動。Cに向かって。",
+                )
                 text = result["text"].strip()
             finally:
                 os.unlink(tmp_path)

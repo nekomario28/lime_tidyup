@@ -10,8 +10,8 @@ LOCATIONS = {
 _GO_KEYWORDS = re.compile(r"行|いって|移動|向か")
 _DESTINATION_RULES = (
     (re.compile(r"[Aa]|えー|エー|えい"), "A"),
-    (re.compile(r"[Bb]|びー|ビー|びい"), "B"),
-    (re.compile(r"[Cc]|しー|シー|しい"), "C"),
+    (re.compile(r"[Bb]|びー|ビー|びい|ピー|ぴー|ぴい|ピイ"), "B"),
+    (re.compile(r"[Cc]|しー|シー|しい|ちー|チー"), "C"),
 )
 
 
