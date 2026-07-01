@@ -4,11 +4,12 @@
             <Sequence name="main">
                 <Retry name="listen_retry" num_failures="[999]">
                     <Sequence name="listen_and_parse">
-                        <VoiceRecognition name="listen" language="ja-JP"/>
-                        <ProcessVoiceCommand name="process"/>
+                        <VoiceRecognition name="listen" language="ja" />
+                        <ProcessVoiceCommand name="process" />
                     </Sequence>
                 </Retry>
-                <GoToPose name="go"/>
+                <VoiceSpeak name="confirm" text="わかりました、移動します" />
+                <GoToPose name="go" />
             </Sequence>
         </Repeat>
     </BehaviorTree>

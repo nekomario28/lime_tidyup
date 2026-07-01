@@ -1,0 +1,8 @@
+<root>
+    <BehaviorTree ID="test_voice_print">
+        <Sequence name="main">
+            <VoiceRecognition name="listen" language="ja"/>
+            <PrintVoiceText name="print_text"/>
+        </Sequence>
+    </BehaviorTree>
+</root>
