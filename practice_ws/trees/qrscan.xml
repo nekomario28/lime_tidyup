@@ -1,0 +1,11 @@
+<root>
+    <BehaviorTree ID="qrscan">
+    <Sequence name="main">
+
+<!-- <Scan QR> -->
+
+        <QRScan name="qr_scan"/>
+
+    </Sequence>
+    </BehaviorTree>
+</root>
