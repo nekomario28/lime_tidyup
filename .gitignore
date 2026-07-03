@@ -7,6 +7,15 @@ __pycache__/
 .pytest_cache/
 .mypy_cache/
 .ruff_cache/
+.cache/
+.coverage
+coverage.xml
+htmlcov/
+
+# Build/package caches
+build/
+dist/
+*.egg-info/
 
 # Local editor/system files
 .vscode/
