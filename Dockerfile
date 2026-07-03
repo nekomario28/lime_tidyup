@@ -63,7 +63,7 @@ RUN echo "source /opt/ros/humble/setup.bash" >> .bashrc
 RUN echo "source /project/lib_ws/install/setup.bash" >> .bashrc
 RUN echo "source /usr/share/gazebo/setup.sh" >> .bashrc
 RUN echo "source ~/turtlebot3_ws/install/setup.bash" >> .bashrc
-RUN echo "export CYCLONEDDS_URI=/root/bin/cyclonedds.xml" >> .bashrc
+RUN echo "export CYCLONEDDS_URI=~/bin/cyclone.xml" >> .bashrc
 RUN echo "export GAZEBO_PLUGIN_PATH=$GAZEBO_PLUGIN_PATH:/project/lib_ws/build/IFRA_LinkAttacher:/opt/ros/humble/lib" >> .bashrc
 RUN echo "export RMW_IMPLEMENTATION=rmw_cyclonedds_cpp" >> .bashrc
 RUN echo 'export GAZEBO_MODEL_PATH=$GAZEBO_MODEL_PATH:/opt/ros/humble/share/turtlebot3_gazebo/models:/root/practice_ws/worlds' >> .bashrc
