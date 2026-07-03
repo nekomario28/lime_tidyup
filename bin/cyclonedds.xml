@@ -12,7 +12,7 @@
               <Peer Address="192.168.76.29"/>
               <Peer Address="192.168.128.217"/>
 	      <Peer Address="192.168.11.101"/>
-	      <peer Address="192.168.11.107"/>
+	      <Peer Address="192.168.11.107"/>
               <Peer Address="localhost"/>
       </Peers>
     </Discovery>
