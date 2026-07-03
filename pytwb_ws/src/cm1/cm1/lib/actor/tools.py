@@ -213,18 +213,7 @@ class Tools(SubNet):
                 os.unlink(tmp_path)
         except Exception as e:
             print(f"[voice] whisper unavailable/error: {e}")
-            print("[voice] falling back to Google SpeechRecognition")
-            try:
-                google_language = "ja-JP" if language == "ja" else language
-                text = recognizer.recognize_google(
-                    audio, language=google_language
-                ).strip()
-            except sr.UnknownValueError:
-                print("Could not understand audio")
-                return False
-            except sr.RequestError as request_error:
-                print(f"Speech recognition service error: {request_error}")
-                return False
+            return False
 
         print(f"[voice] recognized: {text}")
         py_trees.blackboard.Blackboard().set(key, text)
