@@ -15,22 +15,24 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     ros-humble-rmw-cyclonedds-cpp \
     && rm -rf /var/lib/apt/lists/*
 
+RUN python3 -m pip install --no-cache-dir --upgrade pip
+
 RUN python3 -m pip install --no-cache-dir \
+    numpy==1.26.4 \
+    matplotlib==3.8.4 \
+    opencv-python-headless==4.10.0.84 \
     ultralytics \
     roboflow \
-    opencv-python \
-    numpy
+    inference-sdk
+
 WORKDIR /root/yolo_ws
-RUN mkdir -p src
+RUN mkdir -p src /root/bin
 
-RUN echo "source /opt/ros/humble/setup.bash" >> /root/.bashrc
-RUN echo "if [ -f /root/yolo_ws/install/setup.bash ]; then source /root/yolo_ws/install/setup.bash; fi" >> /root/.bashrc
-RUN echo "export ROS_DOMAIN_ID=20" >> /root/.bashrc
-RUN echo "export RMW_IMPLEMENTATION=rmw_cyclonedds_cpp" >> /root/.bashrc
-
-RUN echo "export ROS_DOMAIN_ID=20" >> ~/.bashrc
-RUN echo "export RMW_IMPLEMENTATION=rmw_cyclonedds_cpp" >> ~/.bashrc
-RUN echo "export CYCLONEDDS_URI=/root/bin/cyclonedds.xml" >> ~/.bashrc
+RUN echo "source /opt/ros/humble/setup.bash" >> /root/.bashrc && \
+    echo "if [ -f /root/yolo_ws/install/setup.bash ]; then source /root/yolo_ws/install/setup.bash; fi" >> /root/.bashrc && \
+    echo "export ROS_DOMAIN_ID=20" >> /root/.bashrc && \
+    echo "export RMW_IMPLEMENTATION=rmw_cyclonedds_cpp" >> /root/.bashrc && \
+    echo 'export PATH=$PATH:/root/bin' >> /root/.bashrc
 
 WORKDIR /root/yolo_ws
 
