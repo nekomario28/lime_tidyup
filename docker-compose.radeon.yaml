@@ -1,0 +1,4 @@
+services:
+  lime_simul_demo_yuu:
+    devices:
+      - /dev/dri:/dev/dri
