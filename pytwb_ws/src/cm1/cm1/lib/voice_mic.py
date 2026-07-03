@@ -1,7 +1,10 @@
+import importlib
+
+sr = None
 try:
-    import speech_recognition as sr
+    sr = importlib.import_module("speech_recognition")
 except ModuleNotFoundError:
-    sr = None
+    pass
 
 
 def _require_speech_recognition():
