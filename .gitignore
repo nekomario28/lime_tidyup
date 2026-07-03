@@ -5,6 +5,34 @@ __pycache__/
 *.py[cod]
 *$py.class
 
+# Python tooling caches
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.cache/
+.coverage
+coverage.xml
+htmlcov/
+
+# Build/package caches
+build/
+dist/
+*.egg-info/
+yolo_ws/install/
+yolo_ws/log/
+*.cache
+yolo_ws/runs/
+!yolo_ws/runs/pose/
+!yolo_ws/runs/pose/train-2/
+!yolo_ws/runs/pose/train-2/weights/
+!yolo_ws/runs/pose/train-2/args.yaml
+!yolo_ws/runs/pose/train-2/results.csv
+!yolo_ws/runs/pose/train-2/weights/best.pt
+
+# Local editor/system files
+.vscode/
+.DS_Store
+*:Zone.Identifier
 # C extensions
 *.so
 
