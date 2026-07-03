@@ -1,7 +1,7 @@
-image: oc_get.yaml.pgm
+image: oc3.pgm
 mode: trinary
 resolution: 0.05
-origin: [-1.11, -1.83, 0]
+origin: [-0.89, -1.79, 0]
 negate: 0
 occupied_thresh: 0.65
 free_thresh: 0.25
