@@ -15,12 +15,14 @@ setup(
     zip_safe=True,
     maintainer='root',
     maintainer_email='root@todo.todo',
-    description='Barcode detector package',
+    description='YOLO pose detector package',
     license='TODO',
     tests_require=['pytest'],
     entry_points={
         'console_scripts': [
             'roboflow_node = barcode_detector.roboflow_node:main',
+            'yolo_pose_node = barcode_detector.yolo_pose_node:main',
+            'yolo_save_node = barcode_detector.yolo_save_node:main',
         ],
     },
 )
