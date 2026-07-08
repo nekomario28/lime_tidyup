@@ -163,8 +163,10 @@ class Tools(SubNet):
         else:
             device_index = select_microphone_index(int(device_index))
 
+        microphones = sr.Microphone.list_microphone_names()
         print_microphones()
-        print(f"[voice] mic={device_index}  engine=whisper:{model}")
+        mic_name = microphones[device_index] if device_index is not None else "default"
+        print(f"[voice] mic={device_index} ({mic_name})  engine=whisper:{model}")
 
         recognizer = sr.Recognizer()
         recognizer.dynamic_energy_threshold = True
