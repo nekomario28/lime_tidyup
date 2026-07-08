@@ -122,10 +122,16 @@ class Tools(SubNet):
         pa = pyaudio.PyAudio()
         stream = None
         try:
+            if device_index is None:
+                device_info = pa.get_default_input_device_info()
+            else:
+                device_info = pa.get_device_info_by_index(device_index)
+            sample_rate = int(device_info["defaultSampleRate"])
+            print(f"[voice] sample_rate={sample_rate}")
             stream = pa.open(
                 format=pyaudio.paInt16,
                 channels=1,
-                rate=16000,
+                rate=sample_rate,
                 input=True,
                 input_device_index=device_index,
                 frames_per_buffer=1024,
@@ -174,13 +180,19 @@ class Tools(SubNet):
         recognizer.phrase_threshold = 0.3
         recognizer.non_speaking_duration = 0.4
         try:
-            microphone = sr.Microphone(device_index=device_index, sample_rate=16000)
+            microphone = sr.Microphone(device_index=device_index)
         except OSError as e:
             print(f"[voice] microphone open failed: {e}")
             print("[voice] check docker audio settings and run voice_list_mics")
             return False
 
-        with microphone as source:
+        source = None
+        try:
+            source = microphone.__enter__()
+            if source.stream is None:
+                print("[voice] microphone stream open failed")
+                return False
+            print(f"[voice] sample_rate={microphone.SAMPLE_RATE}")
             print("Listening...")
             recognizer.adjust_for_ambient_noise(source, duration=0.5)
             try:
@@ -188,6 +200,17 @@ class Tools(SubNet):
             except sr.WaitTimeoutError:
                 print("No speech detected (timeout)")
                 return False
+        except Exception as e:
+            print(f"[voice] microphone read failed: {e}")
+            return False
+        finally:
+            stream = getattr(microphone, "stream", None)
+            if stream is not None:
+                microphone.__exit__(None, None, None)
+            else:
+                audio_interface = getattr(microphone, "audio", None)
+                if audio_interface is not None:
+                    audio_interface.terminate()
 
         try:
             import whisper as _whisper
