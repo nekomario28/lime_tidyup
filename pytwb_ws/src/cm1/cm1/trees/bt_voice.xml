@@ -7,7 +7,7 @@
                         <VoiceRecognition
                             name="listen"
                             language="ja"
-                            model="base"
+                            model="large"
                         />
                         <ProcessVoiceCommand name="process" />
                     </Sequence>
