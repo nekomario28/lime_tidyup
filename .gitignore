@@ -17,6 +17,19 @@ build/
 dist/
 *.egg-info/
 
+# ROS/colcon build artifacts
+install/
+log/
+
+# ML datasets, training outputs, and model weights
+yolo_ws/datasets/
+yolo_ws/runs/
+yolo_ws/pose_label_viz/
+yolo_ws/pose_predict_viz/
+yolo_ws/pose_predict_viz_sample*/
+*.pt
+*.pth
+
 # Local editor/system files
 .vscode/
 .DS_Store
