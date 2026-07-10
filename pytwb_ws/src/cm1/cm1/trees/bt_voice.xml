@@ -8,7 +8,7 @@
                             name="listen"
                             language="ja"
                             model="large"
-                            device_index="0"
+                            device_index="-1"
                         />
                         <ProcessVoiceCommand name="process" />
                     </Sequence>
