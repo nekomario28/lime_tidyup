@@ -156,7 +156,7 @@ class Tools(SubNet):
 
     @actor
     def voice_recognize(
-        self, language="ja", key="recognized_text", device_index=-1, model="large-v3-turbo"
+        self, language="ja", key="recognized_text", device_index=-1, model="base"
     ):
         import tempfile
 

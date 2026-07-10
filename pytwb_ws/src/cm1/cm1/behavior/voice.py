@@ -6,7 +6,7 @@ from pytwb.common import behavior
 class VoiceRecognition(ActorBT):
     desc = "listen to microphone and recognize speech"
 
-    def __init__(self, name, node, language="ja", model="large-v3-turbo", device_index=-1):
+    def __init__(self, name, node, language="ja", model="base", device_index=-1):
         super().__init__(
             name, "voice_recognize", language, "recognized_text", device_index, model
         )
