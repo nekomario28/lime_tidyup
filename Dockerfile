@@ -11,11 +11,18 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 RUN apt-get update && apt install -y python3-colcon-common-extensions
 
-RUN pip3 uninstall -y numpy
-RUN pip3 install numpy==1.26.4
-RUN pip3 install pyquaternion matplotlib transforms3d simple-pid \
- numpy-quaternion pyrealsense2
-RUN pip install "opencv-python<4.10" "opencv-contrib-python<4.10" "numpy==1.26.4"
+RUN python3 -m pip install --upgrade pip setuptools wheel
+
+RUN python3 -m pip install --no-cache-dir --ignore-installed \
+    numpy==1.26.4 \
+    pyquaternion \
+    matplotlib \
+    transforms3d \
+    simple-pid \
+    numpy-quaternion \
+    pyrealsense2 \
+    "opencv-python<4.10" \
+    "opencv-contrib-python<4.10"
 
 #RUN pip3 install -U numpy
 

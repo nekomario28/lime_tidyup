@@ -1,18 +1,39 @@
 <root>
-    <BehaviorTree ID="cube_search">
+    <BehaviorTree ID="cube_grab">
         <Sequence name="main">
 
-            <!-- 1. 信頼度80%以上のキューブを探す -->
+            <!-- 1. キューブを探す -->
             <SearchCube
                 name="search_cube"
                 threshold="[0.80]"/>
 
-            <!-- 2. 中央に合わせながら接近する -->
+            <!-- 2. 中央に合わせて、少し手前まで接近 -->
             <GoFrontCube
                 name="go_front_cube"
                 threshold="[0.80]"
                 center_tolerance="[40]"
                 stop_box_width="[300]"/>
+
+            <!-- 3. アームを物を置く姿勢にする -->
+            <PlacePose
+                name="place_pose"/>
+
+            <!-- 4. その姿勢のまま前進する -->
+            <Mini_Walk
+                name="move_forward_to_cube"
+                target="[20]"/>
+
+            <!-- 5. グリッパーを閉じて物をつかむ -->
+            <Close
+                name="grab_cube"/>
+
+            <!-- 6. つかむまで少し待つ -->
+            <Sleep
+                name="wait_after_grab"
+                time="[2]"/>
+
+            <!-- 7. 初期姿勢にする -->
+            <ArmHome name="one_pose"/>
 
         </Sequence>
     </BehaviorTree>
