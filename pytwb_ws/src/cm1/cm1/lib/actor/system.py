@@ -146,7 +146,7 @@ class Tb3NavigationSystem(SubSystem):
         self.register_action('navigate', NavigateToPose, "/navigate_to_pose")
         self.register_publisher('motor', Twist, 'cmd_vel', 10)
         self.register_subscriber('odom', Odometry, 'odom', 10)
-        self.register_subscriber('cube_pose_result',String,'/cube_pose_result',10)        )
+        self.register_subscriber('cube_pose_result',String,'/cube_pose_result',1)
         self.add_network(ApproachAction)
         self.set_value('current_pose', (0.0, 0.0, 0.0))
     
@@ -203,54 +203,83 @@ class Tb3NavigationSystem(SubSystem):
     
     @actor
     def search_cube(self, threshold=0.80):
-        """
-        /cube_pose_resultを受信し続け、
-        confidenceがthreshold以上になるまで少しずつ回転する。
-        """
+            """
+            /cube_pose_resultを受信し続け、
+            confidenceがthreshold以上になるまで少しずつ回転する。
+            """
 
-        threshold = float(threshold)
+            threshold = float(threshold)
 
-        while True:
-            # /cube_pose_resultを受信
-            msg = self.run_actor('cube_pose_result')
+            while True:
+                # /cube_pose_resultを受信
+                msg = self.run_actor('cube_pose_result')
 
-            try:
-                data = json.loads(msg.data)
+                try:
+                    data = json.loads(msg.data)
 
-            except (
-                json.JSONDecodeError,
-                AttributeError,
-                TypeError
-            ) as error:
-                print(f'cube_pose_resultの解析失敗: {error}')
-                self.run_actor('sleep', 0.1)
-                continue
+                except (
+                    json.JSONDecodeError,
+                    AttributeError,
+                    TypeError
+                ) as error:
+                    print(f'cube_pose_resultの解析失敗: {error}')
+                    self.run_actor('sleep', 0.1)
+                    continue
 
-            detections = data.get('detections', [])
+                detections = data.get('detections', [])
 
-            best_detection = None
-            best_confidence = 0.0
+                best_detection = None
+                best_confidence = 0.0
 
-            # 検出結果を1個ずつ確認
-            for detection in detections:
-                confidence = float(
-                    detection.get('confidence', 0.0)
+                # 検出結果を1個ずつ確認
+                for detection in detections:
+                    confidence = float(
+                        detection.get('confidence', 0.0)
+                    )
+
+                    if confidence > best_confidence:
+                        best_confidence = confidence
+                        best_detection = detection
+
+                print(
+                    f'現在の最大confidence: '
+                    f'{best_confidence:.3f}'
                 )
 
-                if confidence > best_confidence:
-                    best_confidence = confidence
-                    best_detection = detection
+                # 80%以上なら停止して終了
+                if (
+                    best_detection is not None
+                    and best_confidence >= threshold
+                ):
+                    stop_msg = Twist()
 
-            print(
-                f'現在の最大confidence: '
-                f'{best_confidence:.3f}'
-            )
+                    self.run_actor(
+                        'motor',
+                        stop_msg
+                    )
 
-            # 80%以上なら停止して終了
-            if (
-                best_detection is not None
-                and best_confidence >= threshold
-            ):
+                    self.set_value(
+                        'cube_detection',
+                        best_detection
+                    )
+
+                    print('信頼度80%以上のキューブを発見')
+                    return best_detection
+
+                # まだ見つからない場合は少し回転
+                rotate_msg = Twist()
+                rotate_msg.linear.x = 0.0
+                rotate_msg.angular.z = 0.20
+
+                self.run_actor(
+                    'motor',
+                    rotate_msg
+                )
+
+                # 0.2秒回転
+                self.run_actor('sleep', 0.2)
+
+                # 一度停止
                 stop_msg = Twist()
 
                 self.run_actor(
@@ -258,36 +287,152 @@ class Tb3NavigationSystem(SubSystem):
                     stop_msg
                 )
 
-                self.set_value(
-                    'cube_detection',
-                    best_detection
-                )
+                self.run_actor('sleep', 0.1)
 
-                print('信頼度80%以上のキューブを発見')
-                return best_detection
 
-            # まだ見つからない場合は少し回転
-            rotate_msg = Twist()
-            rotate_msg.linear.x = 0.0
-            rotate_msg.angular.z = 0.20
+    @actor
+    def go_front_cube(
+            self,
+            confidence_threshold=0.80,
+            center_tolerance=40.0,
+            stop_box_width=300.0
+        ):
+            """
+            キューブを画面中央に合わせて接近する。
 
-            self.run_actor(
-                'motor',
-                rotate_msg
-            )
+            confidence_threshold:
+                検出として採用する最低信頼度
 
-            # 0.2秒回転
-            self.run_actor('sleep', 0.2)
+            center_tolerance:
+                画面中央から何px以内なら中央とみなすか
 
-            # 一度停止
-            stop_msg = Twist()
+            stop_box_width:
+                検出ボックスの横幅がこの値以上なら停止
+            """
 
-            self.run_actor(
-                'motor',
-                stop_msg
-            )
+            confidence_threshold = float(confidence_threshold)
+            center_tolerance = float(center_tolerance)
+            stop_box_width = float(stop_box_width)
 
-            self.run_actor('sleep', 0.1)
+            # 画像の横幅
+            # スクリーンショットの座標を見ると640px系だと仮定
+            image_center_x = 320.0
+
+            try:
+                while True:
+                    # 検出結果を1件受信
+                    msg = self.run_actor('cube_pose_result')
+
+                    try:
+                        data = json.loads(msg.data)
+                    except (
+                        json.JSONDecodeError,
+                        AttributeError,
+                        TypeError
+                    ) as error:
+                        print(f'JSON解析失敗: {error}')
+                        self.run_actor('sleep', 0.1)
+                        continue
+
+                    detections = data.get('detections', [])
+
+                    best_detection = None
+                    best_confidence = 0.0
+
+                    # 信頼度が一番高いキューブを探す
+                    for detection in detections:
+                        confidence = float(
+                            detection.get('confidence', 0.0)
+                        )
+
+                        if (
+                            confidence >= confidence_threshold
+                            and confidence > best_confidence
+                        ):
+                            best_confidence = confidence
+                            best_detection = detection
+
+                    # キューブを見失った場合
+                    if best_detection is None:
+                        print('キューブが見つかりません')
+
+                        search_msg = Twist()
+                        search_msg.angular.z = 0.15
+
+                        self.run_actor('motor', search_msg)
+                        self.run_actor('sleep', 0.15)
+
+                        self.run_actor('motor', Twist())
+                        continue
+
+                    box = best_detection.get('box_xyxy', [])
+
+                    if len(box) != 4:
+                        print(f'box_xyxyが不正です: {box}')
+                        self.run_actor('motor', Twist())
+                        continue
+
+                    x_min = float(box[0])
+                    y_min = float(box[1])
+                    x_max = float(box[2])
+                    y_max = float(box[3])
+
+                    # 検出ボックスの中心
+                    cube_center_x = (x_min + x_max) / 2.0
+
+                    # 検出ボックスの横幅
+                    box_width = x_max - x_min
+
+                    # 画面中央からのずれ
+                    error_x = cube_center_x - image_center_x
+
+                    print(
+                        f'confidence={best_confidence:.3f}, '
+                        f'center_x={cube_center_x:.1f}, '
+                        f'error_x={error_x:.1f}, '
+                        f'box_width={box_width:.1f}'
+                    )
+
+                    move_msg = Twist()
+
+                    # 十分近いなら停止
+                    if box_width >= stop_box_width:
+                        self.run_actor('motor', Twist())
+
+                        self.set_value(
+                            'cube_detection',
+                            best_detection
+                        )
+
+                        print('キューブの手前で停止しました')
+                        return True
+
+                    # キューブが画面の左側
+                    if error_x < -center_tolerance:
+                        move_msg.angular.z = 0.12
+                        print('左へ向きを調整します')
+
+                    # キューブが画面の右側
+                    elif error_x > center_tolerance:
+                        move_msg.angular.z = -0.12
+                        print('右へ向きを調整します')
+
+                    # キューブが中央にある
+                    else:
+                        move_msg.linear.x = 0.05
+                        move_msg.angular.z = 0.0
+                        print('キューブへ接近します')
+
+                    self.run_actor('motor', move_msg)
+                    self.run_actor('sleep', 0.15)
+
+                    # 動かし続けないよう、一度停止
+                    self.run_actor('motor', Twist())
+                    self.run_actor('sleep', 0.05)
+
+            finally:
+                # エラーや中断時にも必ず停止
+                self.run_actor('motor', Twist())
 
 class Tb3CameraSystem(SubSystem):
     def __init__(self, name, parent):

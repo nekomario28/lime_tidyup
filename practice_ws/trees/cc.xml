@@ -2,9 +2,17 @@
     <BehaviorTree ID="cube_search">
         <Sequence name="main">
 
+            <!-- 1. 信頼度80%以上のキューブを探す -->
             <SearchCube
                 name="search_cube"
                 threshold="[0.80]"/>
+
+            <!-- 2. 中央に合わせながら接近する -->
+            <GoFrontCube
+                name="go_front_cube"
+                threshold="[0.80]"
+                center_tolerance="[40]"
+                stop_box_width="[300]"/>
 
         </Sequence>
     </BehaviorTree>
