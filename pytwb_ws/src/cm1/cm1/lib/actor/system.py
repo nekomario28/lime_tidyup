@@ -316,7 +316,7 @@ class Tb3NavigationSystem(SubSystem):
 
             # 画像の横幅
             # スクリーンショットの座標を見ると640px系だと仮定
-            image_center_x = 320.0
+            image_center_x = 424.0
 
             try:
                 while True:
