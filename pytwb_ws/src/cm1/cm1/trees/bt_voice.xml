@@ -7,7 +7,7 @@
                         <VoiceRecognition
                             name="listen"
                             language="ja"
-                            model="large-v3-turbo"
+                            model="base"
                             device_index="-1"
                         />
                         <ProcessVoiceCommand name="process" />
