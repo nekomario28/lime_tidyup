@@ -1,0 +1,18 @@
+<root>
+    <BehaviorTree ID="bt_catch">
+    <Sequence name="main">
+        <SetDetector name="set cube_detector" func_name="my_dtcs.d_cube" id="cubecd "/> 
+        <Watch name="watch_coke"/>
+        <GetObjFront name="get_coke_front"/>
+        <GoToPose name="move_to_place_loc"/>
+        <ReachObj name="reach_coke" />
+        <Pick name="pick"/> #構える
+        <ObjectLocation name="object_location"/>#ターゲット（物体）の現在の座標を、確認用（デバッグ用）に画面にテキストで表示（プリント）するだけの処理
+        <Shift name="shift" target="[0.175]"/> #ちょっと前にシフト
+        <Sleep name="sleep" time="[3]"/> 
+        <Fit2 name="fit2" distance="[0.175]"/> #最終調整
+        <Close name="close"/> #掴む
+        <ArmHome name="home"/> #ベースの態勢
+    </Sequence>
+    </BehaviorTree>
+</root>
