@@ -37,6 +37,7 @@ services:
       - DISPLAY=${DISPLAY}
       - ROS_DOMAIN_ID=20
       - RMW_IMPLEMENTATION=rmw_cyclonedds_cpp
+      - CYCLONEDDS_URI=/root/bin/cyclonedds.xml
     volumes:
       - ./yolo_ws:/root/yolo_ws:rw
       - ./bin:/root/bin:rw
