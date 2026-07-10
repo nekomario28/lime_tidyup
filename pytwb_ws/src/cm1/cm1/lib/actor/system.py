@@ -4,6 +4,8 @@ import numpy as np
 import time
 import os
 from operator import add
+import json
+from std_msgs.msg import String
 
 import pickle
 
@@ -144,6 +146,7 @@ class Tb3NavigationSystem(SubSystem):
         self.register_action('navigate', NavigateToPose, "/navigate_to_pose")
         self.register_publisher('motor', Twist, 'cmd_vel', 10)
         self.register_subscriber('odom', Odometry, 'odom', 10)
+        self.register_subscriber('cube_pose_result',String,'/cube_pose_result',10)        )
         self.add_network(ApproachAction)
         self.set_value('current_pose', (0.0, 0.0, 0.0))
     
@@ -197,6 +200,94 @@ class Tb3NavigationSystem(SubSystem):
         pose = self.get_value('current_pose')
         pose = list(map(add, pose, (dx, dy, dtheta)))
         self.run_actor('goto', *pose)
+    
+    @actor
+    def search_cube(self, threshold=0.80):
+        """
+        /cube_pose_resultを受信し続け、
+        confidenceがthreshold以上になるまで少しずつ回転する。
+        """
+
+        threshold = float(threshold)
+
+        while True:
+            # /cube_pose_resultを受信
+            msg = self.run_actor('cube_pose_result')
+
+            try:
+                data = json.loads(msg.data)
+
+            except (
+                json.JSONDecodeError,
+                AttributeError,
+                TypeError
+            ) as error:
+                print(f'cube_pose_resultの解析失敗: {error}')
+                self.run_actor('sleep', 0.1)
+                continue
+
+            detections = data.get('detections', [])
+
+            best_detection = None
+            best_confidence = 0.0
+
+            # 検出結果を1個ずつ確認
+            for detection in detections:
+                confidence = float(
+                    detection.get('confidence', 0.0)
+                )
+
+                if confidence > best_confidence:
+                    best_confidence = confidence
+                    best_detection = detection
+
+            print(
+                f'現在の最大confidence: '
+                f'{best_confidence:.3f}'
+            )
+
+            # 80%以上なら停止して終了
+            if (
+                best_detection is not None
+                and best_confidence >= threshold
+            ):
+                stop_msg = Twist()
+
+                self.run_actor(
+                    'motor',
+                    stop_msg
+                )
+
+                self.set_value(
+                    'cube_detection',
+                    best_detection
+                )
+
+                print('信頼度80%以上のキューブを発見')
+                return best_detection
+
+            # まだ見つからない場合は少し回転
+            rotate_msg = Twist()
+            rotate_msg.linear.x = 0.0
+            rotate_msg.angular.z = 0.20
+
+            self.run_actor(
+                'motor',
+                rotate_msg
+            )
+
+            # 0.2秒回転
+            self.run_actor('sleep', 0.2)
+
+            # 一度停止
+            stop_msg = Twist()
+
+            self.run_actor(
+                'motor',
+                stop_msg
+            )
+
+            self.run_actor('sleep', 0.1)
 
 class Tb3CameraSystem(SubSystem):
     def __init__(self, name, parent):
