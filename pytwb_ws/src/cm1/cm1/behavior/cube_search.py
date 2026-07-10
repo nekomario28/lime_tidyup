@@ -1,9 +1,12 @@
+from pytwb.common import behavior, ActorBT
+
+
 @behavior
 class SearchCube(ActorBT):
     desc = 'search cube until confidence reaches threshold'
 
     def __init__(self, name, node, threshold=0.80):
-        # system.pyのnavigationサブシステムを指定
+        # navigationサブシステムを指定
         super(SearchCube, self).__init__(
             name,
             'navigation'
@@ -12,10 +15,10 @@ class SearchCube(ActorBT):
         self.threshold = float(threshold)
 
     def initialise(self):
-        # actorを使う準備
+        # actorを呼び出す準備
         super().prepare()
 
-        # navigation内のsearch_cube actorを指定
+        # system.pyのsearch_cube actorを指定
         self.shared.set_callee([
             (
                 'search_cube',
