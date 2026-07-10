@@ -1,0 +1,11 @@
+<root>
+    <BehaviorTree ID="cube_search">
+        <Sequence name="main">
+
+            <SearchCube
+                name="search_cube"
+                threshold="[0.80]"/>
+
+        </Sequence>
+    </BehaviorTree>
+</root>
