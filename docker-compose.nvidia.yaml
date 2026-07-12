@@ -1,0 +1,4 @@
+services:
+  lime_simul_demo_yuu:
+    # WhisperでNVIDIA CUDAを使えるようにする
+    gpus: all

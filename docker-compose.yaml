@@ -1,7 +1,9 @@
-# NVIDIA (RTX) 、Intel 環境: そのまま `docker compose up` でOK
-# AMD (Radeon) 環境: Gazeboが黒画面になる場合、DRIデバイスのパススルーが必要なため
+# Intel・CPU環境:
+#   docker compose up
+# NVIDIA環境（WhisperでCUDAを使う場合）:
+#   docker compose -f docker-compose.yaml -f docker-compose.nvidia.yaml up
+# AMD Radeon環境（Gazebo描画にDRIが必要な場合）:
 #   docker compose -f docker-compose.yaml -f docker-compose.radeon.yaml up
-# を使ってください。
 services:
   lime_simul_demo_yuu:
     image: course_lime-image_yuu

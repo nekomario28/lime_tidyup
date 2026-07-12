@@ -1,4 +1,5 @@
 services:
   lime_simul_demo_yuu:
+    # Gazeboの描画でホストのDRIデバイスを使う
     devices:
       - /dev/dri:/dev/dri
