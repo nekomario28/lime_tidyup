@@ -35,6 +35,7 @@ from .approach_action import ApproachAction
 from .cognitive import CognitiveNetwork
 from .manipulator import ManipulatorNetwork
 from .tools import Tools
+from .voice import VoiceNetwork
 
 #######################################################
 #
@@ -80,6 +81,7 @@ class Tb3(SubSystem):
         self.register_subscriber('model_states', ModelStates, 'model_states', 10)
         self.register_subscriber('link_states', LinkStates, 'link_states', 10)
         self.add_network(Tools)
+        self.add_network(VoiceNetwork)
         node = self.get_value('node')
         tf_buffer = Buffer()
         tf_listener = TransformListener(tf_buffer, node)
