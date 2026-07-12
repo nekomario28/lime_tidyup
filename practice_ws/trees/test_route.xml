@@ -1,0 +1,33 @@
+<root>
+    <BehaviorTree ID="test_route">
+    <Sequence name="main">
+
+    <!-- start -->
+
+        <SetDestinationByName name="set_init" destination="INIT"/>
+        <GoToPose name="move_to_place_loc"/>
+
+<!-- C -->
+
+        <SetDestinationByName name="set_c" destination="C"/>
+        <GoToPose name="move_to_place_loc"/>
+
+<!-- B -->
+<!--
+        <SetDestinationByName name="set_b" destination="B"/>
+        <GoToPose name="move_to_place_loc"/> -->
+
+<!-- A -->
+
+        <!-- <SetDestinationByName name="set_a" destination="A"/>
+        <GoToPose name="move_to_place_loc"/> -->
+
+
+<!-- Reset -->
+
+        <SetDestinationByName name="set_init" destination="INIT"/>
+        <GoToPose name="move_to_place_loc"/>
+
+    </Sequence>
+    </BehaviorTree>
+</root>
