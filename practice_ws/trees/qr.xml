@@ -17,19 +17,14 @@
 
 <!-- start -->
 
-        <!-- <SetDestination name="set_target" value="[(0, 0,90)]"/>
-        <GoToPose name="move_to_place_loc"/> -->
-
-<!-- 1st Waypoint
-
-        <SetDestination name="set_target" value="[(0.75, -1.0 ,90)]"/>
+        <!-- <SetDestinationByName name="set_init" destination="INIT"/>
         <GoToPose name="move_to_place_loc"/> -->
 
 
 <!-- From QR -->
 
-        <!-- <SetLocQR name="qr_scan"/> -->
-        <SetLocQR name="set_loc_qr"/>
+        <!-- QRScanの結果からA/B/Cを設定 -->
+        <SetDestinationByName name="set_destination"/>
         <GoToPose name="move_to_place_loc"/>
 
         <!-- <Arm0 name="banzai"/> -->
@@ -39,18 +34,13 @@
         
         <Mini_Walk name="mini_walk" target="[-20]"/>
 
-        <SetDestination name="set_target" value="[(-0.17, -0.07 ,0)]"/>
+        <SetDestinationByName name="set_init" destination="INIT"/>
         <GoToPose name="move_to_place_loc"/>
 
 
-<!-- 3rd Waypoint -->
-<!-- 
-        <SetDestination name="set_target" value="[(0, 2.75,180)]"/>
-        <GoToPose name="move_to_place_loc"/> -->
-
 <!-- Reset -->
 
-        <!-- <SetDestination name="set_target" value="[(0, 0,90)]"/>
+        <!-- <SetDestinationByName name="set_init" destination="INIT"/>
         <GoToPose name="move_to_place_loc"/> -->
 
     </Sequence>

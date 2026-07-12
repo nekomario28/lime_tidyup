@@ -3,6 +3,7 @@ import py_trees
 from pytwb.common import behavior
 from ros_actor import get_value
 from lib.actor_bt import ActorBT
+from lib.locations import location_pose
 
 #
 ## decide visit points based on information from vector map
@@ -29,33 +30,19 @@ class SetLocations(py_trees.behaviour.Behaviour):
     def update(self):
         return py_trees.common.Status.SUCCESS
 
-
-
-# Akaoka Yuu
-
-import math
 @behavior
-class SetLocQR(py_trees.behaviour.Behaviour):
+class SetDestinationByName(py_trees.behaviour.Behaviour):
 
-    def __init__(self, name):
-        super().__init__("set_loc_qr")
+    def __init__(self, name, destination=None):
+        super().__init__(name)
+        self.destination = destination
         self.value = None
 
     def initialise(self):
-
-        QRdict ={
-            "A" : [-0.48, -1, 270],
-            "B" : [0.17, -1, 270],
-            "C" : [0.8, -1, 270],
-        }
         bb = py_trees.blackboard.Blackboard()
         self.bb = bb
-        QRdata = bb.get("latest_qr")
-        
-        self.value = QRdict[QRdata]
-        self.value = list(self.value)
-        self.value = [float(self.value[0]), float(self.value[1]), math.radians(self.value[2])]
-        self.value = tuple(self.value)
+        destination = self.destination or bb.get("latest_qr")
+        self.value = location_pose(destination)
         self.bb.set("target_pose", self.value)
     
     def update(self):
