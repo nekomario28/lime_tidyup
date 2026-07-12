@@ -1,21 +1,9 @@
 <root>
     <BehaviorTree ID="bt_voice">
-        <Repeat name="voice_loop" num_success="[999]">
-            <Sequence name="main">
-                <Retry name="listen_retry" num_failures="[999]">
-                    <Sequence name="listen_and_parse">
-                        <VoiceRecognition
-                            name="listen"
-                            language="ja"
-                            model="base"
-                            device_index="-1"
-                        />
-                        <ProcessVoiceCommand name="process" />
-                    </Sequence>
-                </Retry>
-                <VoiceSpeak name="confirm" text="わかりました、移動します" />
-                <GoToPose name="go" />
-            </Sequence>
-        </Repeat>
+        <Sequence name="main">
+            <VoiceCommand name="listen" />
+            <VoiceSpeak name="confirm" text="わかりました" />
+            <GoToPose name="go" />
+        </Sequence>
     </BehaviorTree>
 </root>

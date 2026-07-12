@@ -19,10 +19,10 @@ RUN pip3 install pyquaternion matplotlib transforms3d simple-pid \
 
 RUN apt-get update && apt-get install -y --no-install-recommends ffmpeg espeak-ng
 # Whisper is optional: torch/openai-whisper can fail on some environments due to size/network.
-# Keep the image buildable; voice_recognize falls back to Google SpeechRecognition if Whisper is unavailable.
-RUN pip3 install --no-cache-dir --index-url https://download.pytorch.org/whl/cpu torch \
+# Keep the image buildable when the optional Whisper installation is unavailable.
+RUN pip3 install --no-cache-dir torch \
     && pip3 install --no-cache-dir openai-whisper \
-    && python3 -c "import whisper; whisper.load_model('large')" \
+    && python3 -c "import whisper; whisper.load_model('base')" \
     || echo "[voice] WARNING: openai-whisper install skipped; build continues"
 RUN pip install "opencv-python<4.10" "opencv-contrib-python<4.10" "numpy==1.26.4"
 

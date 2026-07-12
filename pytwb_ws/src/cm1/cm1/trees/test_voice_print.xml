@@ -1,8 +1,7 @@
 <root>
     <BehaviorTree ID="test_voice_print">
         <Sequence name="main">
-            <VoiceRecognition name="listen" language="ja" model="base" device_index="-1" />
-            <PrintVoiceText name="print_text" />
+            <PrintVoiceText name="listen_and_print" />
         </Sequence>
     </BehaviorTree>
 </root>
