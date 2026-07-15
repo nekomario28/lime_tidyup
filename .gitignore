@@ -186,9 +186,6 @@ build/
 install/
 log/
 
-# YOLO
-runs/
-
 # 学習データ（必要なければ）
 yolo_ws/datasets/
 
