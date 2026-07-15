@@ -110,6 +110,7 @@ class ManipulatorNetwork(SubNet):
     def open(self):
         self.run_actor('open_gripper')
         self.run_actor('sleep', 2)
+        return True
 
     # close gripper
     @actor
@@ -252,6 +253,20 @@ class ManipulatorNetwork(SubNet):
         val = (0.0, 50.0, -33.0, -16.0)
         self.run_actor('move_joint', *map(radians, val))
         return self.run_actor('open')
+    
+    # set arm to place position without opening gripper
+    @actor
+    def place_pose(self):
+        # 1. 先にグリッパーを開く
+        self.run_actor('open')
+        val = (0.0, 90.0, 90.0, 0.0,-77.0,0.0)
+
+        self.run_actor(
+            'move_joint',
+            *map(radians, val)
+        )
+
+        return True
 
     @actor    
     def pid(self, *joint_values):

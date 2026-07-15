@@ -5,14 +5,18 @@
             <!-- 1. キューブを探す -->
             <SearchCube
                 name="search_cube"
-                threshold="[0.80]"/>
+                threshold="[0.80]"
+                center_tolerance="[100]"
+                image_width="[848]"/>
 
             <!-- 2. 中央に合わせて、少し手前まで接近 -->
             <GoFrontCube
                 name="go_front_cube"
-                threshold="[0.80]"
-                center_tolerance="[40]"
-                stop_box_width="[300]"/>
+                threshold="[0.50]"
+                center_tolerance="[30]"
+                stop_box_width="[250]"
+                horizontal_fov="[60]"/>
+                
 
             <!-- 3. アームを物を置く姿勢にする -->
             <PlacePose
@@ -21,8 +25,40 @@
             <!-- 4. その姿勢のまま前進する -->
             <Mini_Walk
                 name="move_forward_to_cube"
-                target="[20]"/>
-
+                target="[2.0]"/>
+            <Mini_Walk
+                name="move_forward_to_cube"
+                target="[2.0]"/>
+            <Mini_Walk
+                name="move_forward_to_cube"
+                target="[2.0]"/>
+            <Mini_Walk
+                name="move_forward_to_cube"
+                target="[2.0]"/>
+            <Mini_Walk
+                name="move_forward_to_cube"
+                target="[1.0]"/>
+            <Mini_Walk
+                name="move_forward_to_cube"
+                target="[1.0]"/>
+            <Mini_Walk
+                name="move_forward_to_cube"
+                target="[1.0]"/>
+            <Mini_Walk
+                name="move_forward_to_cube"
+                target="[1.0]"/>
+            <Mini_Walk
+                name="move_forward_to_cube"
+                target="[1.0]"/>
+            <Mini_Walk
+                name="move_forward_to_cube"
+                target="[1.0]"/>
+            <Mini_Walk
+                name="move_forward_to_cube"
+                target="[1.0]"/>
+            <Mini_Walk
+                name="move_forward_to_cube"
+                target="[1.0]"/>
             <!-- 5. グリッパーを閉じて物をつかむ -->
             <Close
                 name="grab_cube"/>
