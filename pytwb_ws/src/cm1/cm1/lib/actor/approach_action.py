@@ -7,7 +7,7 @@ from geometry_msgs.msg import Twist
 from tf_transformations import euler_from_quaternion 
 import time
 
-SPEED = 0.03
+SPEED = 0.1
 TURN = 0.3
 
 class ApproachAction(SubNet):
