@@ -10,7 +10,7 @@ class SearchCube(ActorBT):
         self,
         name,
         node,
-        threshold=0.80,
+        threshold=0.30,
         center_tolerance=120.0,
         image_width=848.0
     ):
