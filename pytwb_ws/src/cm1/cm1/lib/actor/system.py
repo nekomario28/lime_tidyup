@@ -536,7 +536,7 @@ class Tb3NavigationSystem(SubSystem):
                 rotate_msg.angular.z = 0.20
 
                 # 0.6秒間、繰り返しcmd_velを送る
-                for _ in range(50):
+                for _ in range(6):
                     self.run_actor('motor', rotate_msg)
                     self.run_actor('sleep', 0.1)
 
@@ -589,6 +589,7 @@ class Tb3NavigationSystem(SubSystem):
 
             else:
                 center_count = 0
+        
 
             rotate_msg = Twist()
 
