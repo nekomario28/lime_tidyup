@@ -5,28 +5,28 @@
             <!-- 1. キューブを探す -->
             <SearchCube
                 name="search_cube"
-                threshold="[0.20]"/>
+                threshold="[0.01]"/>
 
             <!-- 2. キューブを画像中央に合わせる -->
             <TakeAim
                 name="take_aim_before_approach"
-                threshold="[0.50]"
-                turn_speed="[0.20]"
+                threshold="[0.20]"
+                turn_speed="[0.30]"
                 center_tolerance="[20.0]"/>
 
             <!-- 3. Depthで距離を測り、キューブの手前まで進む -->
             <GoFrontCube
                 name="go_front_cube"
-                threshold="[0.50]"
-                stop_distance="[0.30]"
-                forward_speed="[0.03]"
-                turn_speed="[0.20]"
+                threshold="[0.2]"
+                stop_distance="[0.20]"
+                forward_speed="[0.5]"
+                turn_speed="[0.30]"
                 target_offset_px="[40]"/>
             <!-- 4. 接近後、もう一度キューブを中央に合わせる -->
             <TakeAim
                 name="take_aim_after_approach"
-                threshold="[0.50]"
-                turn_speed="[0.20]"
+                threshold="[0.30]"
+                turn_speed="[0.30]"
                 center_tolerance="[20.0]"/>
 
             <!-- 5. アームを物をつかむ姿勢にする -->
@@ -36,7 +36,7 @@
             <!-- 6. その姿勢のまま40cm前進する -->
             <Walk
                 name="walk_forward_40cm"
-                distance="[0.40]"/>
+                distance="[0.30]"/>
 
             <!-- 7. 少しだけ左へ旋回する -->
             <TurnLeft

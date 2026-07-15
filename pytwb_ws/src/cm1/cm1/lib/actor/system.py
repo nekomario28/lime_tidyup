@@ -672,22 +672,37 @@ class Tb3NavigationSystem(SubSystem):
         # --------------------------------
         # 1. YOLOの検出結果を1回取得
         # --------------------------------
-        best_detection, best_confidence = (
-            self._read_best_cube_detection()
-        )
+        # YOLOを最大5回確認する
+        best_detection = None
+        best_confidence = 0.0
+        max_retry = 5
 
-        if (
-            best_detection is None
-            or best_confidence < threshold
-        ):
-            miss_count += 1
+        for retry_count in range(1, max_retry + 1):
+            best_detection, best_confidence = (
+                self._read_best_cube_detection()
+            )
 
             print(
-                f'go_front_cube: YOLO取得失敗 '
-                f'miss_count={miss_count}, '
+                f'go_front_cube: YOLO確認 '
+                f'{retry_count}/{max_retry}, '
                 f'confidence={best_confidence:.3f}'
             )
 
+            if (
+                best_detection is not None
+                and best_confidence >= threshold
+            ):
+                break
+
+            self.run_actor('sleep', 0.3)
+
+        else:
+            print(
+                f'go_front_cube: YOLO取得失敗 '
+                f'{max_retry}回すべて失敗'
+            )
+
+            self.run_actor('motor', Twist())
             return False
 
         # --------------------------------
@@ -913,22 +928,37 @@ class Tb3NavigationSystem(SubSystem):
         # --------------------------------
         # 1. YOLOを1回だけ取得
         # --------------------------------
-        best_detection, best_confidence = (
-            self._read_best_cube_detection()
-        )
+        # YOLOを最大5回確認する
+        best_detection = None
+        best_confidence = 0.0
+        max_retry = 5
 
-        if (
-            best_detection is None
-            or best_confidence < threshold
-        ):
-            miss_count += 1
+        for retry_count in range(1, max_retry + 1):
+            best_detection, best_confidence = (
+                self._read_best_cube_detection()
+            )
 
             print(
-                f'take_aim: YOLO取得失敗 '
-                f'miss_count={miss_count}, '
+                f'take_aim: YOLO確認 '
+                f'{retry_count}/{max_retry}, '
                 f'confidence={best_confidence:.3f}'
             )
 
+            if (
+                best_detection is not None
+                and best_confidence >= threshold
+            ):
+                break
+
+            self.run_actor('sleep', 0.3)
+
+        else:
+            print(
+                f'take_aim: YOLO取得失敗 '
+                f'{max_retry}回すべて失敗'
+            )
+
+            self.run_actor('motor', Twist())
             return False
 
         # --------------------------------
@@ -1036,11 +1066,19 @@ class Tb3NavigationSystem(SubSystem):
         # --------------------------------
         # 8. 旋回終了
         # --------------------------------
+        # 旋回終了
         self.run_actor('motor', Twist())
 
         print(
             f'take_aim: {turn_seconds:.2f}秒旋回して終了'
         )
+
+        # 車体とカメラ画像が安定するまで待つ
+        print('take_aim: 画像安定待ち 1.0秒')
+        self.run_actor('sleep', 1.0)
+
+        # 旋回前の古い検出結果を破棄
+        self.set_value('cube_detection', None)
 
         return True
 class Tb3CameraSystem(SubSystem):
