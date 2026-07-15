@@ -24,7 +24,7 @@ class YoloPoseNode(Node):
         self.model = YOLO(self.model_path)
 
         self.last_time = 0.0
-        self.interval_sec = 2.0
+        self.interval_sec = 1.0
 
         self.publisher = self.create_publisher(
             String,
