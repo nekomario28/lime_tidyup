@@ -1,30 +1,40 @@
-from pytwb.common import behavior, ActorBT
+from pytwb.common import behavior
+from lib.actor_bt import ActorBT
 
 
 @behavior
 class SearchCube(ActorBT):
-    desc = 'search cube until confidence reaches threshold'
+    desc = 'search cube until centered'
 
-    def __init__(self, name, node, threshold=0.80):
-        # navigationサブシステムを指定
+    def __init__(
+        self,
+        name,
+        node,
+        threshold=0.80,
+        center_tolerance=120.0,
+        image_width=848.0
+    ):
         super(SearchCube, self).__init__(
             name,
             'navigation'
         )
 
         self.threshold = float(threshold)
+        self.center_tolerance = float(center_tolerance)
+        self.image_width = float(image_width)
 
     def initialise(self):
-        # actorを呼び出す準備
         super().prepare()
 
-        # system.pyのsearch_cube actorを指定
         self.shared.set_callee([
             (
                 'search_cube',
-                (self.threshold,)
+                (
+                    self.threshold,
+                    self.center_tolerance,
+                    self.image_width
+                )
             )
         ])
 
-        # actorを実行
         self.run()
