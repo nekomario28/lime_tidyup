@@ -5,71 +5,57 @@
             <!-- 1. キューブを探す -->
             <SearchCube
                 name="search_cube"
-                threshold="[0.80]"
-                center_tolerance="[100]"
-                image_width="[848]"/>
+                threshold="[0.20]"/>
 
-            <!-- 2. 中央に合わせて、少し手前まで接近 -->
+            <!-- 2. キューブを画像中央に合わせる -->
+            <TakeAim
+                name="take_aim_before_approach"
+                threshold="[0.50]"
+                turn_speed="[0.20]"
+                center_tolerance="[20.0]"/>
+
+            <!-- 3. Depthで距離を測り、キューブの手前まで進む -->
             <GoFrontCube
                 name="go_front_cube"
                 threshold="[0.50]"
-                center_tolerance="[30]"
-                stop_box_width="[250]"
-                horizontal_fov="[60]"/>
-                
+                stop_distance="[0.30]"
+                forward_speed="[0.03]"
+                turn_speed="[0.20]"
+                target_offset_px="[40]"/>
+            <!-- 4. 接近後、もう一度キューブを中央に合わせる -->
+            <TakeAim
+                name="take_aim_after_approach"
+                threshold="[0.50]"
+                turn_speed="[0.20]"
+                center_tolerance="[20.0]"/>
 
-            <!-- 3. アームを物を置く姿勢にする -->
-            <PlacePose
-                name="place_pose"/>
+            <!-- 5. アームを物をつかむ姿勢にする -->
+            <Open name="hirou"/>  
+            <Hirou_Pose name="hirou_pose"/>
 
-            <!-- 4. その姿勢のまま前進する -->
-            <Mini_Walk
-                name="move_forward_to_cube"
-                target="[2.0]"/>
-            <Mini_Walk
-                name="move_forward_to_cube"
-                target="[2.0]"/>
-            <Mini_Walk
-                name="move_forward_to_cube"
-                target="[2.0]"/>
-            <Mini_Walk
-                name="move_forward_to_cube"
-                target="[2.0]"/>
-            <Mini_Walk
-                name="move_forward_to_cube"
-                target="[1.0]"/>
-            <Mini_Walk
-                name="move_forward_to_cube"
-                target="[1.0]"/>
-            <Mini_Walk
-                name="move_forward_to_cube"
-                target="[1.0]"/>
-            <Mini_Walk
-                name="move_forward_to_cube"
-                target="[1.0]"/>
-            <Mini_Walk
-                name="move_forward_to_cube"
-                target="[1.0]"/>
-            <Mini_Walk
-                name="move_forward_to_cube"
-                target="[1.0]"/>
-            <Mini_Walk
-                name="move_forward_to_cube"
-                target="[1.0]"/>
-            <Mini_Walk
-                name="move_forward_to_cube"
-                target="[1.0]"/>
-            <!-- 5. グリッパーを閉じて物をつかむ -->
+            <!-- 6. その姿勢のまま40cm前進する -->
+            <Walk
+                name="walk_forward_40cm"
+                distance="[0.40]"/>
+
+            <!-- 7. 少しだけ左へ旋回する -->
+            <TurnLeft
+                name="turn_left_before_grab"
+                turn_seconds="[0.50]"
+                turn_speed="[0.20]"/>
+
+            <!-- 8. グリッパーを閉じてキューブをつかむ -->
             <Close
                 name="grab_cube"/>
 
-            <!-- 6. つかむまで少し待つ -->
+            <!-- 9. つかみ終わるまで待つ -->
             <Sleep
                 name="wait_after_grab"
-                time="[2]"/>
+                time="[2.0]"/>
 
-            <!-- 7. 初期姿勢にする -->
-            <ArmHome name="one_pose"/>
+            <!-- 10. アームを初期姿勢へ戻す -->
+            <ArmHome
+                name="arm_home"/>
 
         </Sequence>
     </BehaviorTree>

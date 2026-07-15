@@ -4,16 +4,17 @@ from lib.actor_bt import ActorBT
 
 @behavior
 class GoFrontCube(ActorBT):
-    desc = 'turn toward cube and approach it'
+    desc = 'turn toward cube and approach using depth'
 
     def __init__(
         self,
         name,
         node,
-        threshold=0.80,
-        center_tolerance=25.0,
-        stop_box_width=300.0,
-        horizontal_fov=60.0
+        threshold=0.50,
+        stop_distance=0.30,
+        forward_speed=0.03,
+        turn_speed=0.20,
+        target_offset_px=40.0
     ):
         super(GoFrontCube, self).__init__(
             name,
@@ -21,19 +22,21 @@ class GoFrontCube(ActorBT):
         )
 
         self.threshold = float(threshold)
-        self.center_tolerance = float(center_tolerance)
-        self.stop_box_width = float(stop_box_width)
-        self.horizontal_fov = float(horizontal_fov)
+        self.stop_distance = float(stop_distance)
+        self.forward_speed = float(forward_speed)
+        self.turn_speed = float(turn_speed)
+        self.target_offset_px = float(target_offset_px)
 
     def initialise(self):
         super().prepare()
 
         print(
             'GoFrontCube args:',
-            self.threshold,
-            self.center_tolerance,
-            self.stop_box_width,
-            self.horizontal_fov
+            f'threshold={self.threshold}',
+            f'stop_distance={self.stop_distance}',
+            f'forward_speed={self.forward_speed}',
+            f'turn_speed={self.turn_speed}',
+            f'target_offset_px={self.target_offset_px}'
         )
 
         self.shared.set_callee([
@@ -41,9 +44,10 @@ class GoFrontCube(ActorBT):
                 'go_front_cube',
                 (
                     self.threshold,
-                    self.center_tolerance,
-                    self.stop_box_width,
-                    self.horizontal_fov
+                    self.stop_distance,
+                    self.forward_speed,
+                    self.turn_speed,
+                    self.target_offset_px
                 )
             )
         ])

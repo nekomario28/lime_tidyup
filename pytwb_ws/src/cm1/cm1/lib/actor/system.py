@@ -150,6 +150,241 @@ class Tb3NavigationSystem(SubSystem):
         self.register_subscriber('cube_pose_result',String,'/cube_pose_result',1)
         self.add_network(ApproachAction)
         self.set_value('current_pose', (0.0, 0.0, 0.0))
+
+    def _cube_depth_from_box(
+        self,
+        box,
+        rgb_width=848.0,
+        rgb_height=480.0
+    ):
+        """
+        YOLOのバウンディングボックス中央付近からDepthを取得する。
+
+        引数:
+            box:
+                [x_min, y_min, x_max, y_max]
+
+            rgb_width, rgb_height:
+                YOLOに使ったRGB画像の大きさ
+
+        戻り値:
+            距離[m]
+            取得失敗時はNone
+        """
+
+        # -----------------------------
+        # 1. Depth画像を受信
+        # -----------------------------
+        try:
+            depth_msg = self.run_actor('depth')
+        except Exception as error:
+            print(
+                f'_cube_depth_from_box: '
+                f'Depthメッセージ取得失敗: {error}'
+            )
+            return None
+
+        # -----------------------------
+        # 2. ROS画像をNumPy配列へ変換
+        # -----------------------------
+        try:
+            bridge = CvBridge()
+
+            depth_image = bridge.imgmsg_to_cv2(
+                depth_msg,
+                desired_encoding='passthrough'
+            )
+
+        except CvBridgeError as error:
+            print(
+                f'_cube_depth_from_box: '
+                f'CvBridge変換失敗: {error}'
+            )
+            return None
+
+        except Exception as error:
+            print(
+                f'_cube_depth_from_box: '
+                f'Depth画像変換失敗: {error}'
+            )
+            return None
+
+        if depth_image is None or depth_image.size == 0:
+            print(
+                '_cube_depth_from_box: '
+                'Depth画像が空です'
+            )
+            return None
+
+        # Depth画像の実際のサイズ
+        depth_height, depth_width = depth_image.shape[:2]
+
+        # -----------------------------
+        # 3. RGB座標をDepth座標へ変換
+        # -----------------------------
+        try:
+            x_min = float(box[0])
+            y_min = float(box[1])
+            x_max = float(box[2])
+            y_max = float(box[3])
+        except (
+            TypeError,
+            ValueError,
+            IndexError
+        ) as error:
+            print(
+                f'_cube_depth_from_box: '
+                f'box変換失敗: {error}'
+            )
+            return None
+
+        scale_x = depth_width / float(rgb_width)
+        scale_y = depth_height / float(rgb_height)
+
+        center_x = int(
+            ((x_min + x_max) / 2.0) * scale_x
+        )
+
+        center_y = int(
+            ((y_min + y_max) / 2.0) * scale_y
+        )
+
+        # 配列の範囲外を防ぐ
+        center_x = max(
+            0,
+            min(center_x, depth_width - 1)
+        )
+
+        center_y = max(
+            0,
+            min(center_y, depth_height - 1)
+        )
+
+        # -----------------------------
+        # 4. 中央1点ではなく周辺領域を使う
+        # -----------------------------
+        radius = 5
+
+        x1 = max(0, center_x - radius)
+        x2 = min(depth_width, center_x + radius + 1)
+
+        y1 = max(0, center_y - radius)
+        y2 = min(depth_height, center_y + radius + 1)
+
+        depth_region = depth_image[
+            y1:y2,
+            x1:x2
+        ].astype(np.float32)
+
+        # NaN、inf、0を除外
+        valid_depths = depth_region[
+            np.isfinite(depth_region)
+            & (depth_region > 0.0)
+        ]
+
+        if valid_depths.size == 0:
+            print(
+                '_cube_depth_from_box: '
+                '有効なDepth値がありません'
+            )
+            return None
+
+        # ノイズに強い中央値を使う
+        raw_distance = float(
+            np.median(valid_depths)
+        )
+
+        # -----------------------------
+        # 5. 単位をメートルへ変換
+        # -----------------------------
+        encoding = getattr(
+            depth_msg,
+            'encoding',
+            ''
+        )
+
+        # 16UC1なら通常はミリメートル
+        if encoding in ('16UC1', 'mono16'):
+            distance_m = raw_distance / 1000.0
+
+        # 32FC1なら通常はメートル
+        elif encoding == '32FC1':
+            distance_m = raw_distance
+
+        else:
+            # encodingが不明な場合の簡易判定
+            if raw_distance > 20.0:
+                distance_m = raw_distance / 1000.0
+            else:
+                distance_m = raw_distance
+
+        # 異常値を除外
+        if not (0.05 <= distance_m <= 10.0):
+            print(
+                f'_cube_depth_from_box: '
+                f'Depth値が範囲外です: '
+                f'{distance_m:.3f}m'
+            )
+            return None
+
+        print(
+            f'_cube_depth_from_box: '
+            f'encoding={encoding}, '
+            f'depth_size={depth_width}x{depth_height}, '
+            f'point=({center_x}, {center_y}), '
+            f'distance={distance_m:.3f}m'
+        )
+
+        return distance_m
+    def _read_best_cube_detection(self):
+        """
+        /cube_pose_resultからYOLOの検出結果を取得し、
+        confidenceが最も高い検出を返す。
+
+        戻り値:
+            (best_detection, best_confidence)
+
+            検出できなかった場合:
+                (None, 0.0)
+        """
+
+        msg = self.run_actor('cube_pose_result')
+
+        try:
+            data = json.loads(msg.data)
+
+        except (
+            json.JSONDecodeError,
+            AttributeError,
+            TypeError
+        ) as error:
+            print(
+                f'_read_best_cube_detection: '
+                f'JSON解析失敗: {error}'
+            )
+            return None, 0.0
+
+        detections = data.get('detections', [])
+
+        best_detection = None
+        best_confidence = 0.0
+
+        for detection in detections:
+            try:
+                confidence = float(
+                    detection.get('confidence', 0.0)
+                )
+            except (
+                TypeError,
+                ValueError
+            ):
+                continue
+
+            if confidence > best_confidence:
+                best_confidence = confidence
+                best_detection = detection
+
+        return best_detection, best_confidence
     
     def create_move_base_goal(self, x, y, theta):
         """ Creates a MoveBaseGoal message from a 2D navigation pose """
@@ -244,7 +479,7 @@ class Tb3NavigationSystem(SubSystem):
     @actor
     def search_cube(
             self,
-            threshold=0.80,
+            threshold=0.20,
             center_tolerance=120.0,
             image_width=848.0
         ):
@@ -298,7 +533,7 @@ class Tb3NavigationSystem(SubSystem):
 
                 rotate_msg = Twist()
                 rotate_msg.linear.x = 0.0
-                rotate_msg.angular.z = 0.40
+                rotate_msg.angular.z = 0.20
 
                 # 0.6秒間、繰り返しcmd_velを送る
                 for _ in range(50):
@@ -359,17 +594,17 @@ class Tb3NavigationSystem(SubSystem):
 
             # 左端に見えている場合は左へ大きく回転
             if error_x < -center_tolerance:
-                rotate_msg.angular.z = 0.40
+                rotate_msg.angular.z = 0.20
                 print('キューブが左端なので左へ大きく回転')
 
             # 右端に見えている場合は右へ大きく回転
             elif error_x > center_tolerance:
-                rotate_msg.angular.z = -0.40
+                rotate_msg.angular.z = -0.20
                 print('キューブが右端なので右へ大きく回転')
 
             # キューブが見つからない、または信頼度不足
             else:
-                rotate_msg.angular.z = 0.30
+                rotate_msg.angular.z = 0.20
                 print('信頼度不足なので探索を継続')
 
             # 約0.6秒間、繰り返し回転命令を送る
@@ -385,369 +620,429 @@ class Tb3NavigationSystem(SubSystem):
     @actor
     def go_front_cube(
         self,
-        threshold=0.80,
-        center_tolerance=25.0,
-        stop_box_width=300.0,
-        horizontal_fov=60.0
+        threshold=0.50,
+        stop_distance=0.30,
+        forward_speed=0.03,
+        turn_speed=0.20,
+        target_offset_px=40.0
     ):
-        print(
-            'go_front_cube actor開始:',
-            threshold,
-            center_tolerance,
-            stop_box_width,
+        """
+        YOLOとDepthを1回取得し、
+
+        1. キューブの横ずれから旋回秒数を計算
+        2. 計算した時間だけ旋回
+        3. Depth距離から前進秒数を計算
+        4. 一気に前進
+        5. 停止
+
+        を行うActor。
+
+        戻り値:
+            True:
+                旋回と前進が完了した、
+                またはすでに停止距離以内だった
+
+            False:
+                YOLO、box_xyxy、Depthの取得に失敗した
+        """
+
+        threshold = float(threshold)
+        stop_distance = float(stop_distance)
+        forward_speed = abs(float(forward_speed))
+        turn_speed = abs(float(turn_speed))
+        target_offset_px = float(target_offset_px)
+
+        # 外から変更しない固定値
+        horizontal_fov = 60.0
+        image_width = 848.0
+        image_height = 480.0
+        command_interval = 0.1
+
+        miss_count = 0
+
+        # 速度が0だと時間計算で0除算になる
+        if turn_speed == 0.0:
+            print('go_front_cube: turn_speedが0です')
+            return False
+
+        if forward_speed == 0.0:
+            print('go_front_cube: forward_speedが0です')
+            return False
+
+        # --------------------------------
+        # 1. YOLOの検出結果を1回取得
+        # --------------------------------
+        best_detection, best_confidence = (
+            self._read_best_cube_detection()
+        )
+
+        if (
+            best_detection is None
+            or best_confidence < threshold
+        ):
+            miss_count += 1
+
+            print(
+                f'go_front_cube: YOLO取得失敗 '
+                f'miss_count={miss_count}, '
+                f'confidence={best_confidence:.3f}'
+            )
+
+            return False
+
+        # --------------------------------
+        # 2. YOLOのboxを取得
+        # --------------------------------
+        box = best_detection.get('box_xyxy', [])
+
+        if len(box) != 4:
+            miss_count += 1
+
+            print(
+                f'go_front_cube: YOLOのbox_xyxy取得失敗 '
+                f'miss_count={miss_count}, '
+                f'box={box}'
+            )
+
+            return False
+
+        # --------------------------------
+        # 3. Depth画像から距離を取得
+        # --------------------------------
+        distance = self._cube_depth_from_box(
+            box,
+            rgb_width=image_width,
+            rgb_height=image_height
+        )
+
+        if distance is None:
+            miss_count += 1
+
+            print(
+                f'go_front_cube: Depth取得失敗 '
+                f'miss_count={miss_count}'
+            )
+
+            return False
+
+        # --------------------------------
+        # 4. キューブの横位置を計算
+        # --------------------------------
+        x_min = float(box[0])
+        x_max = float(box[2])
+
+        cube_center_x = (x_min + x_max) / 2.0
+
+        # 画像中央よりtarget_offset_pxだけ右を目標にする
+        target_center_x = (
+            image_width / 2.0
+            + target_offset_px
+        )
+
+        # 正数：キューブが目標より右
+        # 負数：キューブが目標より左
+        error_x = cube_center_x - target_center_x
+
+        # --------------------------------
+        # 5. ピクセルのずれを角度に変換
+        # --------------------------------
+        horizontal_fov_rad = np.deg2rad(
             horizontal_fov
         )
 
-        threshold = float(threshold)
-        center_tolerance = float(center_tolerance)
-        stop_box_width = float(stop_box_width)
-        horizontal_fov = float(horizontal_fov)
+        turn_angle = (
+            error_x / image_width
+        ) * horizontal_fov_rad
 
-        
+        # キューブが右なら右回転
+        if error_x > 0.0:
+            turn_direction = -1.0
 
-        image_width = 848.0
+        # キューブが左なら左回転
+        else:
+            turn_direction = 1.0
 
-        # カメラ中央。
-        # グリッパーの中心とずれる場合は後で調整する
-        target_center_x = image_width / 2.0
+        # 時間 = 必要角度 ÷ 旋回速度
+        turn_seconds = (
+            abs(turn_angle) / turn_speed
+        )
 
-        # 連続で停止条件を満たした回数
-        stop_count = 0
+        print(
+            f'go_front_cube: '
+            f'confidence={best_confidence:.3f}, '
+            f'distance={distance:.3f}m, '
+            f'cube_center_x={cube_center_x:.1f}px, '
+            f'target_center_x={target_center_x:.1f}px, '
+            f'error_x={error_x:.1f}px, '
+            f'turn_angle={np.rad2deg(turn_angle):.2f}deg, '
+            f'turn_seconds={turn_seconds:.2f}s'
+        )
 
-        # 検出を連続で失敗した回数
-        miss_count = 0
+        # --------------------------------
+        # 6. 計算した時間だけ一気に旋回
+        # --------------------------------
+        if turn_seconds > 0.0:
+            turn_msg = Twist()
 
-        # 一度でも前進したか
-        has_started_forward = False
+            turn_msg.angular.z = (
+                turn_speed * turn_direction
+            )
 
-        # 最後に確認できた値
-        last_box_width = 0.0
-        last_error_x = 0.0
+            elapsed = 0.0
 
-        try:
-            while True:
+            while elapsed < turn_seconds:
+                remaining = turn_seconds - elapsed
 
-                # ==============================================
-                # 1. YOLOの結果を取得
-                # ==============================================
-                msg = self.run_actor('cube_pose_result')
-
-                try:
-                    data = json.loads(msg.data)
-
-                except (
-                    json.JSONDecodeError,
-                    AttributeError,
-                    TypeError
-                ) as error:
-                    print(f'JSON解析失敗: {error}')
-
-                    self.run_actor('motor', Twist())
-                    self.run_actor('sleep', 0.10)
-                    continue
-
-                detections = data.get('detections', [])
-
-                best_detection = None
-                best_confidence = 0.0
-
-                for detection in detections:
-                    confidence = float(
-                        detection.get('confidence', 0.0)
-                    )
-
-                    if (
-                        confidence >= threshold
-                        and confidence > best_confidence
-                    ):
-                        best_confidence = confidence
-                        best_detection = detection
-
-                # ==============================================
-                # 2. キューブを見失った場合
-                # ==============================================
-                if best_detection is None:
-                    miss_count += 1
-                    stop_count = 0
-
-                    # まず停止
-                    self.run_actor('motor', Twist())
-
-                    print(
-                        f'キューブ未検出: '
-                        f'{miss_count}回連続'
-                    )
-
-                    # 一時的な検出抜けなら待つ
-                    if miss_count < 5:
-                        self.run_actor('sleep', 0.10)
-                        continue
-
-                    # 十分近い位置で見失った場合は、
-                    # カメラに入りきらないほど近づいた可能性がある
-                    if (
-                        has_started_forward
-                        and last_box_width
-                        >= stop_box_width * 0.85
-                    ):
-                        print(
-                            '停止距離付近で見失ったため、'
-                            '接近完了と判断します'
-                        )
-
-                        return True
-
-                    # まだ遠い場合は、最後に見えた方向へ小さく回す
-                    search_msg = Twist()
-                    search_msg.linear.x = 0.0
-
-                    if last_error_x > 0:
-                        # キューブが左側にあった
-                        search_msg.angular.z = 0.12
-
-                    elif last_error_x < 0:
-                        # キューブが右側にあった
-                        search_msg.angular.z = -0.12
-
-                    else:
-                        search_msg.angular.z = 0.12
-
-                    print('最後に見えた方向へ小さく再探索します')
-
-                    self.run_actor('motor', search_msg)
-                    self.run_actor('sleep', 0.12)
-                    self.run_actor('motor', Twist())
-                    self.run_actor('sleep', 0.10)
-
-                    continue
-
-                # 検出できたのでリセット
-                miss_count = 0
-
-                # ==============================================
-                # 3. バウンディングボックスを取得
-                # ==============================================
-                box = best_detection.get('box_xyxy', [])
-
-                if len(box) != 4:
-                    print(f'box_xyxyが不正です: {box}')
-
-                    self.run_actor('motor', Twist())
-                    self.run_actor('sleep', 0.10)
-                    continue
-
-                x_min = float(box[0])
-                x_max = float(box[2])
-
-                cube_center_x = (
-                    x_min + x_max
-                ) / 2.0
-
-                box_width = (
-                    x_max - x_min
+                sleep_time = min(
+                    command_interval,
+                    remaining
                 )
 
-                # 正ならキューブは目標位置より左
-                # 負ならキューブは目標位置より右
-                error_x = (
-                    target_center_x
-                    - cube_center_x
-                )
+                self.run_actor('motor', turn_msg)
+                self.run_actor('sleep', sleep_time)
 
-                last_box_width = box_width
-                last_error_x = error_x
+                elapsed += sleep_time
 
-                print(
-                    f'confidence={best_confidence:.3f}, '
-                    f'center_x={cube_center_x:.1f}, '
-                    f'error_x={error_x:.1f}, '
-                    f'box_width={box_width:.1f}'
-                )
-                # ==============================================
-                # 強制終了判定
-                # 十分近づいたら、中央誤差に関係なく次のActorへ進む
-                # ==============================================
-                
-
-                                # 十分近づいたら強制的に接近終了
-                if box_width >= stop_box_width:
-                    print(
-                        f'十分近づきました: '
-                        f'box_width={box_width:.1f}px, '
-                        f'停止基準={stop_box_width:.1f}px, '
-                        f'error_x={error_x:.1f}px'
-                    )
-
-                    self.run_actor('motor', Twist())
-                    self.run_actor('sleep', 0.10)
-
-                    # 少し左へ回転
-                    left_turn_msg = Twist()
-                    left_turn_msg.linear.x = 0.0
-                    left_turn_msg.angular.z = 0.12
-
-                    print('少し左へ向きを調整します')
-
-                    for _ in range(6):
-                        self.run_actor('motor', left_turn_msg)
-                        self.run_actor('sleep', 0.10)
-
-                    self.run_actor('motor', Twist())
-                    self.run_actor('sleep', 0.10)
-
-                    self.set_value(
-                        'cube_detection',
-                        best_detection
-                    )
-
-                    print('接近完了。次のActorへ進みます')
-                    return True
-
-
-                # ==============================================
-                # 4. 距離に応じて中央許容範囲を変える
-                # ==============================================
-                if box_width < 150.0:
-                    current_tolerance = min(
-                        center_tolerance,
-                        45.0
-                    )
-
-                elif box_width < 230.0:
-                    current_tolerance = min(
-                        center_tolerance,
-                        30.0
-                    )
-
-                else:
-                    # 近いほど正確に中央へ合わせる
-                    current_tolerance = min(
-                        center_tolerance,
-                        15.0
-                    )
-
-                # ==============================================
-                # 5. 十分近く、かつ中央なら停止
-                # ==============================================
-                if (
-                    box_width >= stop_box_width
-                    and abs(error_x) <= current_tolerance
-                ):
-                    stop_count += 1
-
-                    self.run_actor('motor', Twist())
-
-                    print(
-                        f'停止判定: {stop_count}/3 '
-                        f'box_width={box_width:.1f}, '
-                        f'error_x={error_x:.1f}'
-                    )
-
-                    # 誤検出を避けるため3回確認
-                    if stop_count >= 3:
-                        self.set_value(
-                            'cube_detection',
-                            best_detection
-                        )
-
-                        print(
-                            'キューブの正面で停止しました'
-                        )
-
-                        return True
-
-                    self.run_actor('sleep', 0.10)
-                    continue
-
-                stop_count = 0
-
-                # ==============================================
-                # 6. 中央から大きく外れていたら回転だけ
-                # ==============================================
-                if abs(error_x) > current_tolerance:
-
-                    # ピクセル誤差を角速度へ変換
-                    angular_speed = error_x * 0.0020
-
-                    # 回転が強すぎないよう制限
-                    angular_speed = max(
-                        -0.22,
-                        min(0.22, angular_speed)
-                    )
-
-                    # 小さすぎて動かないのを防止
-                    if 0.0 < angular_speed < 0.07:
-                        angular_speed = 0.07
-
-                    elif -0.07 < angular_speed < 0.0:
-                        angular_speed = -0.07
-
-                    turn_msg = Twist()
-                    turn_msg.linear.x = 0.0
-                    turn_msg.angular.z = angular_speed
-
-                    print(
-                        f'中央調整のみ: '
-                        f'許容={current_tolerance:.1f}px, '
-                        f'角速度={angular_speed:.3f}rad/s'
-                    )
-
-                    # 短時間だけ回して、再び画像を確認
-                    self.run_actor('motor', turn_msg)
-                    self.run_actor('sleep', 0.12)
-                    self.run_actor('motor', Twist())
-                    self.run_actor('sleep', 0.08)
-
-                    continue
-
-                # ==============================================
-                # 7. 中央付近なら、方向修正しながら前進
-                # ==============================================
-                has_started_forward = True
-
-                # 近づくほど低速にする
-                if box_width < 120.0:
-                    forward_speed = 0.070
-
-                elif box_width < 180.0:
-                    forward_speed = 0.055
-
-                elif box_width < 240.0:
-                    forward_speed = 0.10
-
-                else:
-                    forward_speed = 0.020
-
-                # 前進中にも小さく方向修正する
-                angular_speed = error_x * 0.0012
-
-                angular_speed = max(
-                    -0.08,
-                    min(0.08, angular_speed)
-                )
-
-                move_msg = Twist()
-                move_msg.linear.x = forward_speed
-                move_msg.angular.z = angular_speed
-
-                print(
-                    f'追従前進: '
-                    f'速度={forward_speed:.3f}m/s, '
-                    f'角速度={angular_speed:.3f}rad/s, '
-                    f'許容={current_tolerance:.1f}px'
-                )
-
-                # 一度に長く進まず、0.12秒ごとに再検出する
-                self.run_actor('motor', move_msg)
-                self.run_actor('sleep', 1.0)
-
-                self.run_actor('motor', Twist())
-                self.run_actor('sleep', 0.02)
-
-        finally:
-            # 例外や中断時にも必ず停止
+            # 旋回終了後に停止
             self.run_actor('motor', Twist())
 
+        # --------------------------------
+        # 7. 前進する距離を計算
+        # --------------------------------
+        forward_distance = (
+            distance - stop_distance
+        )
+
+        # すでに停止距離以内なら前進しない
+        if forward_distance <= 0.0:
+            print(
+                f'go_front_cube: 現在距離が'
+                f'{distance:.3f}mなので前進しません'
+            )
+
+            return True
+
+        # 時間 = 距離 ÷ 速度
+        forward_seconds = (
+            forward_distance / forward_speed
+        )
+
+        print(
+            f'go_front_cube: '
+            f'forward_distance={forward_distance:.3f}m, '
+            f'forward_speed={forward_speed:.3f}m/s, '
+            f'forward_seconds={forward_seconds:.2f}s'
+        )
+
+        # --------------------------------
+        # 8. 計算した時間だけ一気に前進
+        # --------------------------------
+        forward_msg = Twist()
+        forward_msg.linear.x = forward_speed
+
+        elapsed = 0.0
+
+        while elapsed < forward_seconds:
+            remaining = forward_seconds - elapsed
+
+            sleep_time = min(
+                command_interval,
+                remaining
+            )
+
+            self.run_actor('motor', forward_msg)
+            self.run_actor('sleep', sleep_time)
+
+            elapsed += sleep_time
+
+        # 前進完了後に停止
+        self.run_actor('motor', Twist())
+
+        print(
+            f'go_front_cube: '
+            f'約{stop_distance:.2f}m手前までの移動完了'
+        )
+
+        return True
+    
+    @actor
+    def take_aim(
+        self,
+        threshold=0.50,
+        turn_speed=0.20,
+        center_tolerance=20.0
+    ):
+        """
+        YOLOを1回だけ取得し、キューブが画像中央へ来るように
+        旋回秒数を計算して、一度の旋回で中央合わせを行う。
+
+        引数:
+            threshold:
+                YOLOの最低confidence
+
+            turn_speed:
+                旋回速度[rad/s]
+
+            center_tolerance:
+                中央とみなす許容範囲[px]
+
+        戻り値:
+            True:
+                旋回完了、またはすでに中央付近
+
+            False:
+                YOLOまたはbox_xyxyの取得に失敗
+        """
+
+        threshold = float(threshold)
+        turn_speed = abs(float(turn_speed))
+        center_tolerance = abs(float(center_tolerance))
+
+        # 外から変更しない固定値
+        horizontal_fov = 60.0
+        image_width = 848.0
+        command_interval = 0.1
+
+        miss_count = 0
+
+        # 旋回速度が0だと0除算になる
+        if turn_speed == 0.0:
+            print('take_aim: turn_speedが0です')
+            return False
+
+        # --------------------------------
+        # 1. YOLOを1回だけ取得
+        # --------------------------------
+        best_detection, best_confidence = (
+            self._read_best_cube_detection()
+        )
+
+        if (
+            best_detection is None
+            or best_confidence < threshold
+        ):
+            miss_count += 1
+
+            print(
+                f'take_aim: YOLO取得失敗 '
+                f'miss_count={miss_count}, '
+                f'confidence={best_confidence:.3f}'
+            )
+
+            return False
+
+        # --------------------------------
+        # 2. バウンディングボックスを取得
+        # --------------------------------
+        box = best_detection.get('box_xyxy', [])
+
+        if len(box) != 4:
+            miss_count += 1
+
+            print(
+                f'take_aim: box_xyxy取得失敗 '
+                f'miss_count={miss_count}, '
+                f'box={box}'
+            )
+
+            return False
+
+        # --------------------------------
+        # 3. キューブ中心と画像中心を計算
+        # --------------------------------
+        x_min = float(box[0])
+        x_max = float(box[2])
+
+        cube_center_x = (x_min + x_max) / 2.0
+        image_center_x = image_width / 2.0
+
+        # 正数：キューブが画像の右側
+        # 負数：キューブが画像の左側
+        error_x = cube_center_x - image_center_x
+
+        print(
+            f'take_aim: '
+            f'confidence={best_confidence:.3f}, '
+            f'cube_center_x={cube_center_x:.1f}px, '
+            f'image_center_x={image_center_x:.1f}px, '
+            f'error_x={error_x:.1f}px'
+        )
+
+        # --------------------------------
+        # 4. すでに中央付近なら旋回しない
+        # --------------------------------
+        if abs(error_x) <= center_tolerance:
+            print('take_aim: すでに中央付近です')
+            return True
+
+        # --------------------------------
+        # 5. ピクセルのずれを旋回角度に変換
+        # --------------------------------
+        turn_angle_deg = (
+            error_x / image_width
+        ) * horizontal_fov
+
+        turn_angle_rad = np.deg2rad(
+            turn_angle_deg
+        )
+
+        # キューブが右なら右回転
+        if error_x > 0.0:
+            turn_direction = -1.0
+
+        # キューブが左なら左回転
+        else:
+            turn_direction = 1.0
+
+        # --------------------------------
+        # 6. 旋回秒数を計算
+        # --------------------------------
+        # 時間 = 角度 ÷ 角速度
+        turn_seconds = (
+            abs(turn_angle_rad) / turn_speed
+        )
+
+        print(
+            f'take_aim: '
+            f'turn_angle={turn_angle_deg:.2f}deg, '
+            f'turn_speed={turn_speed:.3f}rad/s, '
+            f'turn_seconds={turn_seconds:.2f}s'
+        )
+
+        # --------------------------------
+        # 7. 計算した時間だけ一気に旋回
+        # --------------------------------
+        turn_msg = Twist()
+
+        turn_msg.angular.z = (
+            turn_speed * turn_direction
+        )
+
+        elapsed = 0.0
+
+        while elapsed < turn_seconds:
+            remaining = turn_seconds - elapsed
+
+            sleep_time = min(
+                command_interval,
+                remaining
+            )
+
+            self.run_actor('motor', turn_msg)
+            self.run_actor('sleep', sleep_time)
+
+            elapsed += sleep_time
+
+        # --------------------------------
+        # 8. 旋回終了
+        # --------------------------------
+        self.run_actor('motor', Twist())
+
+        print(
+            f'take_aim: {turn_seconds:.2f}秒旋回して終了'
+        )
+
+        return True
 class Tb3CameraSystem(SubSystem):
     def __init__(self, name, parent):
         super().__init__(name, parent)

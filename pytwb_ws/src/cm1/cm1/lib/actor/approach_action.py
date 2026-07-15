@@ -48,6 +48,96 @@ class ApproachAction(SubNet):
         self.run_actor('sleep', len*0.1)
         self.move(0, 0)
     
+    @actor
+
+    def turn_left(self, turn_seconds=0.5, turn_speed=0.20):
+
+        """
+
+        指定した速度で、指定した秒数だけ左旋回するActor。
+
+
+
+        引数:
+
+            turn_seconds:
+
+                左旋回する時間\[s\]
+
+                例: 0.5なら0.5秒間旋回
+
+
+
+            turn_speed:
+
+                旋回速度\[rad/s\]
+
+                例: 0.20なら0.20rad/sで左旋回
+
+
+
+        戻り値:
+
+            True:
+
+                旋回完了
+
+        """
+
+
+
+        turn_seconds = max(0.0, float(turn_seconds))
+
+        turn_speed = abs(float(turn_speed))
+
+
+
+        turn_msg = Twist()
+
+
+
+        # angular.zが正数なので左旋回
+
+        turn_msg.angular.z = turn_speed
+
+
+
+        print(
+
+            f'turn_left: '
+
+            f'speed={turn_speed:.3f}rad/s, '
+
+            f'time={turn_seconds:.2f}s'
+
+        )
+
+
+
+        # 左旋回開始
+        self.run_actor('motor', turn_msg)
+        self.run_actor('motor', turn_msg)
+
+
+
+        # 指定された秒数だけ待つ
+
+        self.run_actor('sleep', turn_seconds)
+
+
+
+        # 旋回終了後に停止
+
+        self.run_actor('motor', Twist())
+
+
+
+        print('turn_left: 左旋回完了')
+
+
+
+        return True
+
     # navigation with visual feedback
     @actor
     def targetted_walk(self, len, fname="control.csv", speed=1.0):
