@@ -19,12 +19,13 @@ RUN pip3 install pyquaternion matplotlib transforms3d simple-pid \
     numpy-quaternion pyrealsense2 SpeechRecognition pyaudio sympy
 
 RUN apt-get update && apt-get install -y --no-install-recommends ffmpeg espeak-ng
-# Whisper is optional: torch/openai-whisper can fail on some environments due to size/network.
-# Keep the image buildable when the optional Whisper installation is unavailable.
-RUN pip3 install --no-cache-dir torch \
-    && pip3 install --no-cache-dir openai-whisper \
-    && python3 -c "import whisper; whisper.load_model('base')" \
-    || echo "[voice] WARNING: openai-whisper install skipped; build continues"
+# Pin the CUDA wheel so Whisper uses the NVIDIA GPU without pulling a newer
+# CUDA release that does not support this host GPU.
+RUN pip3 install --no-cache-dir more-itertools numba tiktoken tqdm \
+    && pip3 install --no-cache-dir \
+        --index-url https://download.pytorch.org/whl/cu121 torch==2.2.2 \
+    && pip3 install --no-cache-dir --no-deps openai-whisper==20250625 \
+    && python3 -c "import whisper; whisper.load_model('base')"
 RUN pip install "opencv-python<4.10" "opencv-contrib-python<4.10" "numpy==1.26.4"
 
 RUN python3 -m pip install --no-cache-dir --ignore-installed \
@@ -111,7 +112,7 @@ RUN echo "export ROS_DOMAIN_ID=20" >> .bashrc
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
     ros-humble-rmw-cyclonedds-cpp \
-    ros-humble-gazebo-* ros-humble-navigation2 \
+    ros-humble-gazebo-* ros-humble-navigation2 ros-humble-diagnostic-updater \
     ros-humble-nav2-bringup
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
