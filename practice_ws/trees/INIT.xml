@@ -1,0 +1,10 @@
+<root>
+    <BehaviorTree ID="INIT">
+    <Sequence name="main">
+
+        <SetDestinationByName name="set_init" destination="INIT"/>
+        <GoToPose name="move_to_place_loc"/>
+
+    </Sequence>
+    </BehaviorTree>
+</root>
