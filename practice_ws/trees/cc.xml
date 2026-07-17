@@ -2,12 +2,10 @@
     <BehaviorTree ID="cube_grab">
         <Sequence name="main">
             
+            <!-- 0. 音声コマンド -->
 
-                   <VoiceCommand name="listen" />
+            <VoiceCommand name="listen" />
             <VoiceSpeak name="confirm" text="わかりました" />
-            
-
-
 
             <!-- 1. キューブを探す -->
             <SearchCube
@@ -52,8 +50,7 @@
                 turn_speed="[0.20]"/>
 
             <!-- 8. グリッパーを閉じてキューブをつかむ -->
-            <Close
-                name="grab_cube"/>
+            <Close name="grab_cube"/>
 
             <!-- 9. つかみ終わるまで待つ -->
             <Sleep
@@ -61,15 +58,26 @@
                 time="[2.0]"/>
 
             <!-- 10. アームを初期姿勢へ戻す -->
-            <ArmHome
-                name="arm_home"/>
+            <ArmHome name="arm_home"/>
 
-            
+            <!-- 11. つかんだキューブを置く場所まで移動する -->
             
             <GoToPose name="go" />
+
+            <!-- 12. 物を置く -->
+
             <Hirou_Pose name="hirou_pose"/>
             <Open name="hirou"/> 
+
+            <!-- 13. アームを初期姿勢へ戻す -->
+
             <ArmHome name="arm_home"/> 
+            <Close name="grab_cube"/>
+
+            <!-- 14. 初期位置へ戻る -->
+
+            <SetDestinationByName name="set_init" destination="INIT"/>
+            <GoToPose name="move_to_place_loc"/>
             
 
         </Sequence>
