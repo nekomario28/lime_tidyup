@@ -1,4 +1,10 @@
 services:
   lime_simul_demo_yuu:
     # WhisperでNVIDIA CUDAを使えるようにする
-    gpus: all
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]

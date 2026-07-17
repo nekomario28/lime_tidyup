@@ -17,7 +17,7 @@ from .locations import location_pose
 # 音声認識の共通設定
 LANGUAGE = "ja"
 MODEL = "base"
-DEVICE_INDEX = -1
+DEVICE_INDEX = 19
 LISTEN_TIMEOUT = 10
 PHRASE_TIME_LIMIT = 6
 WHISPER_PROMPT = (

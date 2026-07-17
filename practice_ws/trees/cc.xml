@@ -1,6 +1,13 @@
 <root>
     <BehaviorTree ID="cube_grab">
         <Sequence name="main">
+            
+
+                   <VoiceCommand name="listen" />
+            <VoiceSpeak name="confirm" text="わかりました" />
+            
+
+
 
             <!-- 1. キューブを探す -->
             <SearchCube
@@ -56,6 +63,14 @@
             <!-- 10. アームを初期姿勢へ戻す -->
             <ArmHome
                 name="arm_home"/>
+
+            
+            
+            <GoToPose name="go" />
+            <Hirou_Pose name="hirou_pose"/>
+            <Open name="hirou"/> 
+            <ArmHome name="arm_home"/> 
+            
 
         </Sequence>
     </BehaviorTree>
