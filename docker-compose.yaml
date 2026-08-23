@@ -11,6 +11,9 @@ services:
     ipc: host
     environment:
       - DISPLAY=${DISPLAY}
+      - WAYLAND_DISPLAY=${WAYLAND_DISPLAY}
+      - XDG_RUNTIME_DIR=/tmp
+      - PULSE_SERVER=${PULSE_SERVER}
     volumes:
       - ./pytwb_ws:/root/pytwb_ws:rw
       - ./bin:/root/bin:rw

@@ -1,0 +1,27 @@
+services:
+  lime_simul_demo:
+    image: lime_simul_demo-image
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        ROS_DISTRO: humble
+    network_mode: host
+    ipc: host
+    environment:
+      - DISPLAY=${DISPLAY}
+      - WAYLAND_DISPLAY=${WAYLAND_DISPLAY}
+      - XDG_RUNTIME_DIR=/tmp
+      - PULSE_SERVER=${PULSE_SERVER}
+    volumes:
+      - ./pytwb_ws:/root/pytwb_ws:rw
+      - ./bin:/root/bin:rw
+      - ./roscommon:/root/roscommon:rw
+      - type: bind
+        source: /tmp/.X11-unix
+        target: /tmp/.X11-unix
+      - type: bind
+        source: '${XDG_RUNTIME_DIR}/wayland-0'
+        target: /tmp/wayland-0
+    command: xterm -fa 'Hack' -fs 24 -display ${DISPLAY} -T 'cm main'
+
