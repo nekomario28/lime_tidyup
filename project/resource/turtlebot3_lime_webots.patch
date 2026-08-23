@@ -1,0 +1,239 @@
+diff --git a/turtlebot3_lime_bringup/launch/moveit_navigation_use_sim_time.launch.py b/turtlebot3_lime_bringup/launch/moveit_navigation_use_sim_time.launch.py
+index 73cb6c2..2db11cc 100644
+--- a/turtlebot3_lime_bringup/launch/moveit_navigation_use_sim_time.launch.py
++++ b/turtlebot3_lime_bringup/launch/moveit_navigation_use_sim_time.launch.py
+@@ -31,7 +31,7 @@ from ament_index_python.packages import get_package_share_directory
+ 
+ 
+ def generate_launch_description():
+-    
++
+     # Moveit 2
+     moveit_launch_dir = os.path.join(
+         get_package_share_directory(
+diff --git a/turtlebot3_lime_description/CMakeLists.txt b/turtlebot3_lime_description/CMakeLists.txt
+index b56053d..a371f16 100644
+--- a/turtlebot3_lime_description/CMakeLists.txt
++++ b/turtlebot3_lime_description/CMakeLists.txt
+@@ -12,7 +12,7 @@ find_package(ament_cmake REQUIRED)
+ ################################################################################
+ # Install
+ ################################################################################
+-install(DIRECTORY launch rviz urdf gazebo meshes ros2_control
++install(DIRECTORY launch rviz urdf gazebo meshes ros2_control webots
+   DESTINATION share/${PROJECT_NAME}
+ )
+ 
+diff --git a/turtlebot3_lime_description/ros2_control/turtlebot3_lime_system.ros2_control.xacro b/turtlebot3_lime_description/ros2_control/turtlebot3_lime_system.ros2_control.xacro
+index 6cba243..6b79155 100644
+--- a/turtlebot3_lime_description/ros2_control/turtlebot3_lime_system.ros2_control.xacro
++++ b/turtlebot3_lime_description/ros2_control/turtlebot3_lime_system.ros2_control.xacro
+@@ -6,33 +6,40 @@ https://github.com/ros-controls/ros2_control_demos/blob/foxy/ros2_control_demo_d
+ -->
+ <robot xmlns:xacro="http://www.ros.org/wiki/xacro">
+ 
+-  <xacro:macro name="turtlebot3_lime_system" params="name prefix use_sim:=^|false use_fake_hardware:=^|false fake_sensor_commands:=^|false">
++  <xacro:macro name="turtlebot3_lime_system" params="name prefix use_sim:=^|false use_webots:=^|false use_fake_hardware:=^|false fake_sensor_commands:=^|false">
+ 
+     <ros2_control name="${name}" type="system">
+ 
+-      <xacro:if value="$(arg use_sim)">
++      <xacro:if value="$(arg use_webots)">
+         <hardware>
+-          <plugin>gazebo_ros2_control/GazeboSystem</plugin>
++          <plugin>webots_ros2_control::Ros2ControlSystem</plugin>
+         </hardware>
+       </xacro:if>
+-      <xacro:unless value="$(arg use_sim)">
+-        <hardware>
+-          <xacro:if value="${use_fake_hardware}">
+-            <plugin>fake_components/GenericSystem</plugin>
+-            <param name="fake_sensor_commands">${fake_sensor_commands}</param>
+-            <param name="state_following_offset">0.0</param>
+-          </xacro:if>
+-          <xacro:unless value="${use_fake_hardware}">
+-            <plugin>turtlebot3_lime_hardware/TurtleBot3LimeSystemHardware</plugin>
+-            <param name="opencr_id">200</param>
+-            <param name="opencr_usb_port">/dev/ttyACM0</param>
+-            <param name="opencr_baud_rate">1000000</param>
+-            <param name="dxl_joints_profile_acceleration">100</param>
+-            <param name="dxl_joints_profile_velocity">500</param>
+-            <param name="dxl_gripper_profile_acceleration">20</param>
+-            <param name="dxl_gripper_profile_velocity">200</param>
+-          </xacro:unless>
+-        </hardware>
++      <xacro:unless value="$(arg use_webots)">
++        <xacro:if value="$(arg use_sim)">
++          <hardware>
++            <plugin>gazebo_ros2_control/GazeboSystem</plugin>
++          </hardware>
++        </xacro:if>
++        <xacro:unless value="$(arg use_sim)">
++          <hardware>
++            <xacro:if value="${use_fake_hardware}">
++              <plugin>fake_components/GenericSystem</plugin>
++              <param name="fake_sensor_commands">${fake_sensor_commands}</param>
++              <param name="state_following_offset">0.0</param>
++            </xacro:if>
++            <xacro:unless value="${use_fake_hardware}">
++              <plugin>turtlebot3_lime_hardware/TurtleBot3LimeSystemHardware</plugin>
++              <param name="opencr_id">200</param>
++              <param name="opencr_usb_port">/dev/ttyACM0</param>
++              <param name="opencr_baud_rate">1000000</param>
++              <param name="dxl_joints_profile_acceleration">100</param>
++              <param name="dxl_joints_profile_velocity">500</param>
++              <param name="dxl_gripper_profile_acceleration">20</param>
++              <param name="dxl_gripper_profile_velocity">200</param>
++            </xacro:unless>
++          </hardware>
++        </xacro:unless>
+       </xacro:unless>
+ 
+       <joint name="${prefix}wheel_left_joint">
+diff --git a/turtlebot3_lime_description/urdf/turtlebot3_bigwheel_orin.urdf.xacro b/turtlebot3_lime_description/urdf/turtlebot3_bigwheel_orin.urdf.xacro
+index a389540..5db2db9 100644
+--- a/turtlebot3_lime_description/urdf/turtlebot3_bigwheel_orin.urdf.xacro
++++ b/turtlebot3_lime_description/urdf/turtlebot3_bigwheel_orin.urdf.xacro
+@@ -83,6 +83,7 @@ https://github.com/ROBOTIS-GIT/turtlebot3/blob/kinetic-devel/turtlebot3_descript
+       <axis xyz="0 0 1"/>
+       <!--XM430-W210-->
+       <limit velocity="8.063" effort="3.0"/>
++      <dynamics damping="0.7" friction="1.0"/>
+     </joint>
+ 
+     <link name="${prefix}wheel_right_link">
+diff --git a/turtlebot3_lime_description/urdf/turtlebot3_lime.urdf.xacro b/turtlebot3_lime_description/urdf/turtlebot3_lime.urdf.xacro
+index 724ebaa..daf702d 100644
+--- a/turtlebot3_lime_description/urdf/turtlebot3_lime.urdf.xacro
++++ b/turtlebot3_lime_description/urdf/turtlebot3_lime.urdf.xacro
+@@ -4,6 +4,7 @@
+   xmlns:xacro="http://www.ros.org/wiki/xacro">
+   <xacro:arg name="prefix" default="" />
+   <xacro:arg name="use_sim" default="false" />
++  <xacro:arg name="use_webots" default="false" />
+ 
+   <xacro:arg name="use_fake_hardware" default="false" />
+   <xacro:arg name="fake_sensor_commands" default="false" />
+@@ -26,6 +27,9 @@
+   <!-- Include TurtleBot3 Lime ros2 control macro -->
+   <xacro:include filename="$(find turtlebot3_lime_description)/ros2_control/turtlebot3_lime_system.ros2_control.xacro" />
+ 
++  <!-- Include TurtleBot3 Lime Webots device/plugin bindings -->
++  <xacro:include filename="$(find turtlebot3_lime_description)/webots/turtlebot3_lime.webots.xacro" />
++
+   <xacro:turtlebot3_bigwheel_orin prefix="$(arg prefix)" />
+   <xacro:turtlebot3_bigwheel_orin_gazebo prefix="$(arg prefix)" />
+ 
+@@ -39,7 +43,7 @@
+   <xacro:open_manipulator_sara prefix="$(arg prefix)" />
+   <xacro:open_manipulator_sara_gazebo prefix="$(arg prefix)" />
+ 
+-  <xacro:turtlebot3_lime_system name="TurtleBot3LimeSystem" prefix="$(arg prefix)" use_sim="$(arg use_sim)" use_fake_hardware="$(arg use_fake_hardware)" fake_sensor_commands="$(arg fake_sensor_commands)"/>
++  <xacro:turtlebot3_lime_system name="TurtleBot3LimeSystem" prefix="$(arg prefix)" use_sim="$(arg use_sim)" use_webots="$(arg use_webots)" use_fake_hardware="$(arg use_fake_hardware)" fake_sensor_commands="$(arg fake_sensor_commands)"/>
+ 
+   <gazebo>
+     <plugin name="gazebo_ros2_control" filename="libgazebo_ros2_control.so">
+@@ -47,4 +51,8 @@
+     </plugin>
+   </gazebo>
+ 
++  <xacro:if value="$(arg use_webots)">
++    <xacro:turtlebot3_lime_webots_devices prefix="$(arg prefix)" />
++  </xacro:if>
++
+ </robot>
+diff --git a/turtlebot3_lime_description/webots/turtlebot3_lime.webots.xacro b/turtlebot3_lime_description/webots/turtlebot3_lime.webots.xacro
+new file mode 100644
+index 0000000..b6b11f5
+--- /dev/null
++++ b/turtlebot3_lime_description/webots/turtlebot3_lime.webots.xacro
+@@ -0,0 +1,89 @@
++<?xml version="1.0"?>
++<!--
++Webots device/plugin bindings for turtlebot3_lime, used in place of the
++<gazebo> sensor/plugin tags when running under webots_ros2_driver
++(use_webots:=true). Device "reference" names below must match the device
++names baked into the robot's PROTO by webots_ros2_importer, which in turn
++come straight from the <sensor name="..."> tags in
++gazebo/turtlebot3_bigwheel_orin.gazebo.xacro.
++-->
++<robot xmlns:xacro="http://www.ros.org/wiki/xacro">
++
++  <xacro:macro name="turtlebot3_lime_webots_devices" params="prefix">
++    <webots>
++      <device reference="lds_lfcd_sensor" type="Lidar">
++        <ros>
++          <enabled>true</enabled>
++          <updateRate>5</updateRate>
++          <topicName>/scan</topicName>
++          <alwaysOn>false</alwaysOn>
++          <frameName>${prefix}base_scan</frameName>
++        </ros>
++      </device>
++      <!-- topicName + imageSuffix/cameraInfoSuffix are combined by webots_ros2_driver
++           (topicName + suffix) so that the published topics match the exact
++           names the old realsense_gazebo_plugin used and that lib/actor/system.py
++           subscribes to (e.g. /camera/camera/color/image_raw, without any
++           extra /image_color suffix). -->
++      <device reference="cameracolor" type="Camera">
++        <ros>
++          <enabled>true</enabled>
++          <updateRate>30</updateRate>
++          <topicName>/camera/camera/color</topicName>
++          <imageSuffix>/image_raw</imageSuffix>
++          <cameraInfoSuffix>/camera_info</cameraInfoSuffix>
++          <frameName>${prefix}camera_color_optical_frame</frameName>
++        </ros>
++      </device>
++      <device reference="cameradepth" type="RangeFinder">
++        <ros>
++          <enabled>true</enabled>
++          <updateRate>30</updateRate>
++          <topicName>/camera/camera/depth</topicName>
++          <imageSuffix>/image_rect_raw</imageSuffix>
++          <cameraInfoSuffix>/camera_info</cameraInfoSuffix>
++          <frameName>${prefix}camera_depth_optical_frame</frameName>
++        </ros>
++      </device>
++      <device reference="cameraired1" type="Camera">
++        <ros>
++          <enabled>true</enabled>
++          <updateRate>30</updateRate>
++          <topicName>/camera/camera/infra1</topicName>
++          <imageSuffix>/image_rect_raw</imageSuffix>
++          <cameraInfoSuffix>/camera_info</cameraInfoSuffix>
++          <frameName>${prefix}camera_infra1_optical_frame</frameName>
++        </ros>
++      </device>
++      <device reference="cameraired2" type="Camera">
++        <ros>
++          <enabled>true</enabled>
++          <updateRate>30</updateRate>
++          <topicName>/camera/camera/infra2</topicName>
++          <imageSuffix>/image_rect_raw</imageSuffix>
++          <cameraInfoSuffix>/camera_info</cameraInfoSuffix>
++          <frameName>${prefix}camera_infra2_optical_frame</frameName>
++        </ros>
++      </device>
++      <device reference="gps" type="GPS">
++        <ros>
++          <enabled>true</enabled>
++          <updateRate>10</updateRate>
++          <topicName>/gps</topicName>
++          <frameName>${prefix}imu_link</frameName>
++        </ros>
++      </device>
++      <plugin type="webots_ros2_driver::Ros2IMU">
++        <alwaysOn>true</alwaysOn>
++        <updateRate>100</updateRate>
++        <topicName>/imu</topicName>
++        <frameName>${prefix}imu_link</frameName>
++        <inertialUnitName>inertial_unit</inertialUnitName>
++        <gyroName>gyro</gyroName>
++        <accelerometerName>accelerometer</accelerometerName>
++      </plugin>
++      <plugin type="webots_ros2_control::Ros2Control" />
++    </webots>
++  </xacro:macro>
++
++</robot>
