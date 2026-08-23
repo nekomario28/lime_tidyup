@@ -59,8 +59,8 @@ def d_coke(img):
 
     # BGR空間での抽出範囲
     ## コーラ缶
-    lower = np.array([170, 230, 0]) # 色相, 彩度, 明度 の下限
-    upper = np.array([180, 250, 255]) # 色相, 彩度, 明度 の上限
+    lower = np.array([165, 150, 0]) # 色相, 彩度, 明度 の下限
+    upper = np.array([180, 255, 255]) # 色相, 彩度, 明度 の上限
 
     # 指定範囲に入る画素を抽出（白が該当部分）
     mask = inRangeWrap(hsv_img, lower, upper)

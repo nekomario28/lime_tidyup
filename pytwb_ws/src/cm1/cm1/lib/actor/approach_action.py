@@ -7,7 +7,7 @@ from geometry_msgs.msg import Twist
 from tf_transformations import euler_from_quaternion 
 import time
 
-SPEED = 0.03
+SPEED = 0.06
 TURN = 0.3
 
 class ApproachAction(SubNet):
@@ -105,7 +105,13 @@ class ApproachAction(SubNet):
                 f.close()
                 return target_angle
             count += 1
-    
+            # This loop had no rate limit, so it re-ran the full color+depth
+            # vision pipeline as fast as physically possible (much faster
+            # than the camera itself updates), burning CPU on redundant
+            # frames and feeding the PID controller noisy/inconsistent
+            # timing. Cap it to a sane control rate instead.
+            self.run_actor('sleep', 0.05)
+
     # final approach to the coke
     @actor
     def targetted_walk_armdown(self, len, fname="shift.csv", speed=0.25):
@@ -146,7 +152,13 @@ class ApproachAction(SubNet):
                 f.close()
                 return target_angle
             count += 1
-    
+            # This loop had no rate limit, so it re-ran the full color+depth
+            # vision pipeline as fast as physically possible (much faster
+            # than the camera itself updates), burning CPU on redundant
+            # frames and feeding the PID controller noisy/inconsistent
+            # timing. Cap it to a sane control rate instead.
+            self.run_actor('sleep', 0.05)
+
     # turn by driving motor directly
     # the move result is not reflected to navigation target
     @actor    
@@ -178,7 +190,16 @@ class ApproachAction(SubNet):
         actual.setTransform(trans.transform)
         dx = actual.x - start.x
         dy = actual.y - start.y
-        dir = atan2(dy, dx)
+        # If the walk barely moved the robot (e.g. it was already close
+        # enough before the walk even started), dx/dy are too small/noisy
+        # for atan2 to give a meaningful heading, and it can send the robot
+        # spinning off toward a bogus direction. Keep the robot's actual
+        # current heading instead in that case.
+        if sqrt(dx**2 + dy**2) < 0.05:
+            rot = trans.transform.rotation
+            _, _, dir = euler_from_quaternion([rot.x, rot.y, rot.z, rot.w])
+        else:
+            dir = atan2(dy, dx)
         self.run_actor('goto', actual.x, actual.y, dir)
 #        joint = [0.0, 1.75, 1.4, 0.0, -1.6, 0.0]
 #        self.run_actor('move_joint', *joint)
@@ -200,7 +221,16 @@ class ApproachAction(SubNet):
         actual.setTransform(trans.transform)
         dx = actual.x - start.x
         dy = actual.y - start.y
-        dir = atan2(dy, dx)
+        # If the walk barely moved the robot (e.g. it was already close
+        # enough before the walk even started), dx/dy are too small/noisy
+        # for atan2 to give a meaningful heading, and it can send the robot
+        # spinning off toward a bogus direction. Keep the robot's actual
+        # current heading instead in that case.
+        if sqrt(dx**2 + dy**2) < 0.05:
+            rot = trans.transform.rotation
+            _, _, dir = euler_from_quaternion([rot.x, rot.y, rot.z, rot.w])
+        else:
+            dir = atan2(dy, dx)
         self.run_actor('goto', actual.x, actual.y, dir)
 #        self.run_actor('arm_turn', target_angle / 2)
         return True        
@@ -222,7 +252,16 @@ class ApproachAction(SubNet):
         actual.setTransform(trans.transform)
         dx = actual.x - start.x
         dy = actual.y - start.y
-        dir = atan2(dy, dx)
+        # If the walk barely moved the robot (e.g. it was already close
+        # enough before the walk even started), dx/dy are too small/noisy
+        # for atan2 to give a meaningful heading, and it can send the robot
+        # spinning off toward a bogus direction. Keep the robot's actual
+        # current heading instead in that case.
+        if sqrt(dx**2 + dy**2) < 0.05:
+            rot = trans.transform.rotation
+            _, _, dir = euler_from_quaternion([rot.x, rot.y, rot.z, rot.w])
+        else:
+            dir = atan2(dy, dx)
         self.run_actor('goto', actual.x, actual.y, dir)
     
     # adjust body angle to face the subject

@@ -5,13 +5,14 @@
         <Watch name="watch_coke"/>
         <GetObjFront name="get_coke_front"/>
         <GoToPose name="move_to_place_loc"/>
-        <ReachObj name="reach_coke" />
+        <ReachObj name="reach_coke"/>
         <Pick name="pick"/>
         <ObjectLocation name="object_location"/>
-        <Shift name="shift" target="[0.175]"/>
+        <Shift name="shift" target="[0.15]"/>
         <Sleep name="sleep" time="[3]"/>
-        <Fit2 name="fit2" distance="[0.175]"/>
+        <Fit2 name="fit2" distance="[0.15]"/>
         <Close name="close"/>
+        <PickUp name="pick_up"/>
         <ArmHome name="home"/>
     </Sequence>
     </BehaviorTree>
