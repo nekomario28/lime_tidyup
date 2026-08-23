@@ -5,7 +5,8 @@ This repository contains demo code for Lime, the next generation TurtleBot3 with
 - Go to working directory of any location
 - Make sure the DISPLAY environment variable is set properly
 
-Misconfiguration of X windows can be a source of trouble. The X server must be configured to accept access via tcpip (e.g. xhost +).  
+Misconfiguration of X windows can be a source of trouble.  By default, it is set to use WSL, and if you can use X windows from the WSL environment, it should work as is.
+For Linux, the X server must be configured to accept access via tcpip (e.g. xhost +).  
 Value of the DISPLAY environment variable should be:  
 'IP address of host os':0.0  
 
