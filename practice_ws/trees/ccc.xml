@@ -9,72 +9,66 @@
             <!-- 1. キューブを探す -->
             <SearchCube
                 name="search_cube"
-                threshold="[0.01]"/>
+                threshold="[0.60]"/>
 
             <!-- 2. キューブを画像中央に合わせる -->
             <TakeAim
                 name="take_aim_before_approach"
-                threshold="[0.20]"
-                turn_speed="[0.30]"
-                center_tolerance="[20.0]"/>
+                threshold="[0.70]"
+                turn_speed="[0.15]"
+                center_tolerance="[12.0]"/>
 
-            <!-- 3. 3D Poseを優先し、使えない場合はDepthで接近する -->
+            <!-- 3. 高信頼の検出だけを使い、低速で接近する -->
             <GoFrontCube
                 name="go_front_cube"
-                threshold="[0.2]"
+                threshold="[0.70]"
                 stop_distance="[0.30]"
-                forward_speed="[0.5]"
-                turn_speed="[0.30]"
+                forward_speed="[0.15]"
+                turn_speed="[0.15]"
                 target_offset_px="[40]"
-                pose_max_reprojection_error_px="[4.0]"/>
+                pose_max_reprojection_error_px="[1.5]"/>
             <!-- 4. 接近後、もう一度キューブを中央に合わせる -->
             <TakeAim
                 name="take_aim_after_approach"
-                threshold="[0.30]"
-                turn_speed="[0.30]"
-                center_tolerance="[20.0]"/>
+                threshold="[0.70]"
+                turn_speed="[0.10]"
+                center_tolerance="[10.0]"/>
   
             <!-- 5. アームを物をつかむ姿勢にする -->
             <Open name="hirou"/>  
             <Hirou_Pose name="hirou_pose"/>
 
-            <!-- 6. その姿勢のまま40cm前進する -->
+            <!-- 6. 盲目前進を15cmに抑える -->
             <Walk
-                name="walk_forward_40cm"
-                distance="[0.40]"/>
+                name="walk_forward_15cm"
+                distance="[0.15]"/>
 
-            <!-- 7. 少しだけ左へ旋回する -->
-            <TurnLeft
-                name="turn_left_before_grab"
-                turn_seconds="[0.50]"
-                turn_speed="[0.20]"/>
-
-            <!-- 8. グリッパーを閉じてキューブをつかむ -->
+            <!-- 7. 固定旋回はせず、その場でキューブをつかむ -->
             <Close name="grab_cube"/>
 
-            <!-- 9. つかみ終わるまで待つ -->
+            <!-- 8. つかみ終わるまで待つ -->
             <Sleep
                 name="wait_after_grab"
                 time="[2.0]"/>
 
-            <!-- 10. アームを初期姿勢へ戻す -->
+            <!-- 9. アームを初期姿勢へ戻す -->
             <ArmHome name="arm_home"/>
 
-            <!-- 11. つかんだキューブを置く場所まで移動する -->
+            <!-- 10. つかんだキューブを置く場所まで移動する -->
             
             <GoToPose name="go" />
 
-            <!-- 12. 物を置く -->
+            <!-- 11. 物を置く -->
 
             <Hirou_Pose name="hirou_pose"/>
             <Open name="hirou"/> 
 
-            <!-- 13. アームを初期姿勢へ戻す -->
+            <!-- 12. アームを初期姿勢へ戻す -->
 
             <ArmHome name="arm_home"/> 
             <Close name="grab_cube"/>
 
-            <!-- 14. 初期位置へ戻る -->
+            <!-- 13. 初期位置へ戻る -->
 
             <SetDestinationByName name="set_init" destination="INIT"/>
             <GoToPose name="move_to_place_loc"/>
