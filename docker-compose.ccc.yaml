@@ -1,6 +1,10 @@
 services:
   lime_simul_demo_yuu:
     command: ["sleep", "infinity"]
+    environment:
+      ROS_DOMAIN_ID: "20"
+      RMW_IMPLEMENTATION: rmw_cyclonedds_cpp
+      CYCLONEDDS_URI: /root/bin/cyclone.xml
 
   yolo:
     command: ["sleep", "infinity"]
