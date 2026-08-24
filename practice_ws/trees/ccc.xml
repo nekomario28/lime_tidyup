@@ -6,22 +6,22 @@
 
             <SetDestinationByName name="set_init" destination="C"/>
 
-            <!-- 1. キューブを探す -->
+            <!-- 1. 低confidence候補も探索対象にする。接近許可は後段RGB-Dで判定 -->
             <SearchCube
                 name="search_cube"
-                threshold="[0.60]"/>
+                threshold="[0.30]"/>
 
-            <!-- 2. キューブを画像中央に合わせる -->
+            <!-- 2. 候補を画像中央に合わせる。ここではまだ移動権限を与えない -->
             <TakeAim
                 name="take_aim_before_approach"
-                threshold="[0.70]"
+                threshold="[0.30]"
                 turn_speed="[0.15]"
                 center_tolerance="[12.0]"/>
 
-            <!-- 3. 高信頼の検出だけを使い、低速で接近する -->
+            <!-- 3. 低confidence候補をDepth + 57mm幾何 + 3/5 temporalで確認してから接近 -->
             <GoFrontCube
                 name="go_front_cube"
-                threshold="[0.70]"
+                threshold="[0.30]"
                 stop_distance="[0.30]"
                 forward_speed="[0.15]"
                 turn_speed="[0.15]"
@@ -39,10 +39,10 @@
                 temporal_window_size="[5]"
                 temporal_required_count="[3]"
                 temporal_center_distance_px="[60]"/>
-            <!-- 4. 接近後、もう一度キューブを中央に合わせる -->
+            <!-- 4. 接近済み・確認済みの同一候補を再び中央に合わせる -->
             <TakeAim
                 name="take_aim_after_approach"
-                threshold="[0.70]"
+                threshold="[0.30]"
                 turn_speed="[0.10]"
                 center_tolerance="[10.0]"/>
   
