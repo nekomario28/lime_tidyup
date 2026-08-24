@@ -33,6 +33,7 @@ import pyrealsense2 as rs
 from ros_actor import actor, SubSystem
 from .approach_action import ApproachAction
 from .cognitive import CognitiveNetwork
+from ..cube_pose import accepted_pose_distance
 from .manipulator import ManipulatorNetwork
 from .tools import Tools
 from .voice import VoiceNetwork
@@ -627,7 +628,8 @@ class Tb3NavigationSystem(SubSystem):
         stop_distance=0.30,
         forward_speed=0.03,
         turn_speed=0.20,
-        target_offset_px=40.0
+        target_offset_px=40.0,
+        pose_max_reprojection_error_px=4.0
     ):
         """
         YOLOとDepthを1回取得し、
@@ -654,6 +656,9 @@ class Tb3NavigationSystem(SubSystem):
         forward_speed = abs(float(forward_speed))
         turn_speed = abs(float(turn_speed))
         target_offset_px = float(target_offset_px)
+        pose_max_reprojection_error_px = float(
+            pose_max_reprojection_error_px
+        )
 
         # 外から変更しない固定値
         horizontal_fov = 60.0
@@ -725,13 +730,23 @@ class Tb3NavigationSystem(SubSystem):
             return False
 
         # --------------------------------
-        # 3. Depth画像から距離を取得
+        # 3. 検証済み3D Poseを優先し、なければDepthへ戻る
         # --------------------------------
-        distance = self._cube_depth_from_box(
-            box,
-            rgb_width=image_width,
-            rgb_height=image_height
+        distance = accepted_pose_distance(
+            best_detection,
+            maximum_reprojection_error_px=(
+                pose_max_reprojection_error_px
+            )
         )
+        distance_source = 'pose_3d'
+
+        if distance is None:
+            distance = self._cube_depth_from_box(
+                box,
+                rgb_width=image_width,
+                rgb_height=image_height
+            )
+            distance_source = 'depth'
 
         if distance is None:
             miss_count += 1
@@ -789,6 +804,7 @@ class Tb3NavigationSystem(SubSystem):
             f'go_front_cube: '
             f'confidence={best_confidence:.3f}, '
             f'distance={distance:.3f}m, '
+            f'distance_source={distance_source}, '
             f'cube_center_x={cube_center_x:.1f}px, '
             f'target_center_x={target_center_x:.1f}px, '
             f'error_x={error_x:.1f}px, '
