@@ -100,7 +100,7 @@ echo "[ccc] starting Lime and YOLO containers"
 started=true
 run "${compose[@]}" up -d --no-build lime_simul_demo_yuu yolo
 
-yolo_command='mkdir -p /tmp/lime-ccc; source /opt/ros/humble/setup.bash; source /root/yolo_ws/install/setup.bash; exec ros2 run barcode_detector yolo_pose_node --ros-args -p debug_image_path:=/root/yolo_ws/cube_pose_debug.jpg >>/tmp/lime-ccc/yolo.log 2>&1'
+yolo_command='set -Eeuo pipefail; mkdir -p /tmp/lime-ccc; source /opt/ros/humble/setup.bash; cd /root/yolo_ws; colcon build --symlink-install --packages-select barcode_detector >>/tmp/lime-ccc/yolo.log 2>&1; source /root/yolo_ws/install/setup.bash; exec ros2 run barcode_detector yolo_pose_node --ros-args -p debug_image_path:=/root/yolo_ws/cube_pose_debug.jpg >>/tmp/lime-ccc/yolo.log 2>&1'
 printf -v map_file_quoted '%q' "${map_file}"
 navigation_command="mkdir -p /tmp/lime-ccc; source /opt/ros/humble/setup.bash; source /project/lib_ws/install/setup.bash; source /root/turtlebot3_ws/install/setup.bash; exec ros2 launch turtlebot3_lime_navigation2 navigation2.launch.py map_yaml_file:=${map_file_quoted} >>/tmp/lime-ccc/navigation.log 2>&1"
 moveit_command='mkdir -p /tmp/lime-ccc; source /opt/ros/humble/setup.bash; source /project/lib_ws/install/setup.bash; source /root/turtlebot3_ws/install/setup.bash; exec ros2 launch turtlebot3_lime_moveit_config moveit_core.launch.py >>/tmp/lime-ccc/moveit.log 2>&1'
