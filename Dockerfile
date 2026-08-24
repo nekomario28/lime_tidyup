@@ -3,9 +3,9 @@ ARG DEBIAN_FRONTEND=noninteractive
 SHELL ["/bin/bash", "-c"]
 
 # If you get a gpg error during docker build, uncomment the following three lines:
-RUN rm -f /etc/apt/sources.list.d/ros*.list \ /etc/apt/sources.list.d/openrobotics.list
-RUN curl -sSL https://raw.githubusercontent.com/ros/rosdistro/master/ros.key -o /usr/share/keyrings/ros-archive-keyring.gpg
-RUN echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/ros-archive-keyring.gpg] http://packages.ros.org/ros2/ubuntu $(. /etc/os-release && echo $UBUNTU_CODENAME) main" | tee /etc/apt/sources.list.d/ros2.list > /dev/null
+#RUN rm -f /etc/apt/sources.list.d/ros*.list \ /etc/apt/sources.list.d/openrobotics.list
+#RUN curl -sSL https://raw.githubusercontent.com/ros/rosdistro/master/ros.key -o /usr/share/keyrings/ros-archive-keyring.gpg
+#RUN echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/ros-archive-keyring.gpg] http://packages.ros.org/ros2/ubuntu $(. /etc/os-release && echo $UBUNTU_CODENAME) main" | tee /etc/apt/sources.list.d/ros2.list > /dev/null
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
  git python3-pip vim eog xterm less wget
@@ -79,7 +79,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
  ros-humble-webots-ros2-driver \
  ros-humble-webots-ros2-control \
  ros-humble-webots-ros2-importer
-
+RUN sed -i \
+    "s/return 'microsoft-standard' in uname().release\$/return 'microsoft-standard' in uname().release and shutil.which('wslpath') is not None/" \
+    /opt/ros/humble/local/lib/python3.10/dist-packages/webots_ros2_driver/utils.py
 
 RUN mkdir -p /root/turtlebot3_ws/src
 WORKDIR /root/turtlebot3_ws
