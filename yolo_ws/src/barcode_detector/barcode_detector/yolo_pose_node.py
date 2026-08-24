@@ -1,3 +1,4 @@
+import hashlib
 import json
 import math
 import time
@@ -48,6 +49,7 @@ class YoloPoseNode(Node):
         )
 
         self.bridge = CvBridge()
+        self.model_sha256 = self._compute_file_sha256(self.model_path)
         self.model = YOLO(self.model_path)
         self.camera_info = None
 
@@ -93,6 +95,8 @@ class YoloPoseNode(Node):
                 f'write debug image: {self.debug_image_path}'
             )
         self.get_logger().info(f'model: {self.model_path}')
+        if self.model_sha256:
+            self.get_logger().info(f'model sha256: {self.model_sha256}')
 
     def camera_info_callback(self, msg):
         """Keep the latest static color-camera calibration."""
@@ -175,6 +179,8 @@ class YoloPoseNode(Node):
 
             result_data = {
                 'timestamp': now,
+                'model_path': self.model_path,
+                'model_sha256': self.model_sha256,
                 'detections': detections
             }
 
@@ -281,6 +287,20 @@ class YoloPoseNode(Node):
         )
         return pose
 
+    def _compute_file_sha256(self, path):
+        """Return a stable checkpoint identity without changing inference."""
+        digest = hashlib.sha256()
+        try:
+            with open(path, 'rb') as stream:
+                for chunk in iter(lambda: stream.read(1024 * 1024), b''):
+                    digest.update(chunk)
+        except OSError as error:
+            self.get_logger().warning(
+                f'model sha256 unavailable for {path}: {error}'
+            )
+            return ''
+        return digest.hexdigest()
+
     @staticmethod
     def _count_usable_keypoints(
         keypoints_xy,
@@ -319,6 +339,14 @@ class YoloPoseNode(Node):
             return
 
         debug_image = cv_image.copy()
+        if self.model_sha256:
+            self._draw_text(
+                cv2,
+                debug_image,
+                f'model={self.model_sha256[:12]}',
+                (10, 18),
+                scale=0.40
+            )
         for detection in detections:
             self._draw_detection_debug(cv2, debug_image, detection)
 
