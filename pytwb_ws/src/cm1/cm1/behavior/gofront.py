@@ -25,7 +25,13 @@ class GoFrontCube(ActorBT):
         depth_roi_fraction=0.0,
         depth_minimum_valid_ratio=0.0,
         depth_maximum_mad_m=10.0,
-        depth_maximum_spread_m=10.0
+        depth_maximum_spread_m=10.0,
+        cube_side_length_m=0.0,
+        geometry_minimum_scale=0.60,
+        geometry_maximum_scale=1.90,
+        temporal_window_size=1.0,
+        temporal_required_count=1.0,
+        temporal_center_distance_px=60.0
     ):
         """Store approach and depth-quality parameters for the actor call."""
         super(GoFrontCube, self).__init__(
@@ -49,6 +55,14 @@ class GoFrontCube(ActorBT):
         )
         self.depth_maximum_mad_m = float(depth_maximum_mad_m)
         self.depth_maximum_spread_m = float(depth_maximum_spread_m)
+        self.cube_side_length_m = float(cube_side_length_m)
+        self.geometry_minimum_scale = float(geometry_minimum_scale)
+        self.geometry_maximum_scale = float(geometry_maximum_scale)
+        self.temporal_window_size = float(temporal_window_size)
+        self.temporal_required_count = float(temporal_required_count)
+        self.temporal_center_distance_px = float(
+            temporal_center_distance_px
+        )
 
     def initialise(self):
         """Dispatch one configured cube-approach actor call."""
@@ -69,7 +83,14 @@ class GoFrontCube(ActorBT):
             'depth_minimum_valid_ratio='
             f'{self.depth_minimum_valid_ratio}',
             f'depth_maximum_mad_m={self.depth_maximum_mad_m}',
-            f'depth_maximum_spread_m={self.depth_maximum_spread_m}'
+            f'depth_maximum_spread_m={self.depth_maximum_spread_m}',
+            f'cube_side_length_m={self.cube_side_length_m}',
+            f'geometry_minimum_scale={self.geometry_minimum_scale}',
+            f'geometry_maximum_scale={self.geometry_maximum_scale}',
+            f'temporal_window_size={self.temporal_window_size}',
+            f'temporal_required_count={self.temporal_required_count}',
+            'temporal_center_distance_px='
+            f'{self.temporal_center_distance_px}'
         )
 
         self.shared.set_callee([
@@ -87,7 +108,13 @@ class GoFrontCube(ActorBT):
                     self.depth_roi_fraction,
                     self.depth_minimum_valid_ratio,
                     self.depth_maximum_mad_m,
-                    self.depth_maximum_spread_m
+                    self.depth_maximum_spread_m,
+                    self.cube_side_length_m,
+                    self.geometry_minimum_scale,
+                    self.geometry_maximum_scale,
+                    self.temporal_window_size,
+                    self.temporal_required_count,
+                    self.temporal_center_distance_px
                 )
             )
         ])

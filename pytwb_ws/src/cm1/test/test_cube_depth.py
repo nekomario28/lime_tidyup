@@ -6,6 +6,8 @@ import numpy as np
 
 from cm1.lib.cube_depth import (
     CubeDepthError,
+    CubeTemporalGate,
+    check_known_size_geometry,
     consistent_depth_median,
     estimate_cube_depth,
 )
@@ -116,6 +118,96 @@ class CubeDepthTests(unittest.TestCase):
                 (0.50, 0.56, 0.49),
                 maximum_spread_m=0.03,
             )
+
+    def test_known_size_geometry_accepts_loose_cube_projection(self):
+        """Accept an observed extent inside the loose pose-aware range."""
+        result = check_known_size_geometry(
+            (100, 100, 157, 153),
+            distance_m=0.60,
+            focal_length_px=600.0,
+            side_length_m=0.057,
+            minimum_scale=0.60,
+            maximum_scale=1.90,
+        )
+
+        self.assertTrue(result.accepted)
+        self.assertAlmostEqual(result.expected_pixel_size, 57.0)
+        self.assertEqual(result.observed_pixel_size, 57.0)
+
+    def test_known_size_geometry_rejects_implausibly_large_box(self):
+        """Reject a box far larger than a 57 mm cube at the measured depth."""
+        result = check_known_size_geometry(
+            (100, 100, 268, 250),
+            distance_m=0.60,
+            focal_length_px=600.0,
+        )
+
+        self.assertFalse(result.accepted)
+        self.assertGreater(
+            result.observed_pixel_size,
+            result.maximum_pixel_size,
+        )
+
+    def test_known_size_geometry_rejects_missing_camera_calibration(self):
+        """Fail closed when focal length is unavailable."""
+        with self.assertRaisesRegex(CubeDepthError, 'focal length'):
+            check_known_size_geometry(
+                (100, 100, 157, 157),
+                distance_m=0.60,
+                focal_length_px=0.0,
+            )
+
+    def test_temporal_gate_confirms_three_of_five_nearby_candidates(self):
+        """Confirm after three valid observations from one nearby track."""
+        gate = CubeTemporalGate(
+            window_size=5,
+            required_count=3,
+            maximum_center_distance_px=20.0,
+        )
+
+        states = [
+            gate.update((100, 100), valid=True),
+            gate.update((103, 101), valid=False),
+            gate.update((105, 102), valid=True),
+            gate.update((108, 104), valid=True),
+        ]
+
+        self.assertFalse(states[2].confirmed)
+        self.assertTrue(states[3].confirmed)
+        self.assertEqual(states[3].valid_count, 3)
+        self.assertEqual(states[3].window_size, 5)
+
+    def test_temporal_gate_resets_for_a_distant_candidate(self):
+        """Do not combine observations whose centers imply another cube."""
+        gate = CubeTemporalGate(
+            window_size=5,
+            required_count=3,
+            maximum_center_distance_px=20.0,
+        )
+        gate.update((100, 100), valid=True)
+        gate.update((105, 100), valid=True)
+
+        state = gate.update((200, 200), valid=True)
+
+        self.assertTrue(state.track_reset)
+        self.assertFalse(state.confirmed)
+        self.assertEqual(state.valid_count, 1)
+
+    def test_temporal_gate_keeps_invalid_frames_unconfirmed(self):
+        """Keep 2D/missing-depth candidates without granting authority."""
+        gate = CubeTemporalGate(window_size=5, required_count=3)
+
+        state = None
+        for center in ((100, 100), (101, 100), None, (102, 101), None):
+            state = gate.update(center, valid=False)
+
+        self.assertFalse(state.confirmed)
+        self.assertEqual(state.valid_count, 0)
+
+    def test_temporal_gate_rejects_impossible_threshold(self):
+        """Reject K values that cannot fit inside N."""
+        with self.assertRaisesRegex(CubeDepthError, 'within the window'):
+            CubeTemporalGate(window_size=5, required_count=6)
 
 
 if __name__ == '__main__':

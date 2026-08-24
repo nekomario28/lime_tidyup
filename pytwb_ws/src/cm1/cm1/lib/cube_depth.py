@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections import deque
 from dataclasses import dataclass
 import math
 
@@ -21,6 +22,147 @@ class CubeDepthEstimate:
     mad_m: float
     sample_count: int
     roi_xyxy: tuple[int, int, int, int]
+
+
+@dataclass(frozen=True)
+class CubeGeometryCheck:
+    """Known-size projection evidence for one detected bounding box."""
+
+    accepted: bool
+    expected_pixel_size: float
+    observed_pixel_size: float
+    minimum_pixel_size: float
+    maximum_pixel_size: float
+
+
+@dataclass(frozen=True)
+class TemporalConfirmation:
+    """Current K-of-N confirmation state for one nearby candidate track."""
+
+    confirmed: bool
+    valid_count: int
+    window_size: int
+    observation_count: int
+    track_reset: bool
+
+
+class CubeTemporalGate:
+    """Confirm nearby candidates with a small K-of-N boolean history."""
+
+    def __init__(
+        self,
+        *,
+        window_size=5,
+        required_count=3,
+        maximum_center_distance_px=60.0,
+    ):
+        """Configure history length, quorum and center association limit."""
+        window_size = int(window_size)
+        required_count = int(required_count)
+        maximum_center_distance_px = float(maximum_center_distance_px)
+        if window_size < 1:
+            raise CubeDepthError('temporal window size must be positive')
+        if required_count < 1 or required_count > window_size:
+            raise CubeDepthError(
+                'temporal required count must be within the window'
+            )
+        if (
+            not math.isfinite(maximum_center_distance_px)
+            or maximum_center_distance_px < 0.0
+        ):
+            raise CubeDepthError(
+                'temporal center distance must be finite and non-negative'
+            )
+
+        self.window_size = window_size
+        self.required_count = required_count
+        self.maximum_center_distance_px = maximum_center_distance_px
+        self._history = deque(maxlen=window_size)
+        self._last_center = None
+
+    def update(self, center, *, valid):
+        """Add one observation and return its confirmation state."""
+        track_reset = False
+        parsed_center = _finite_center(center)
+        if parsed_center is not None:
+            if self._last_center is not None:
+                distance_px = math.hypot(
+                    parsed_center[0] - self._last_center[0],
+                    parsed_center[1] - self._last_center[1],
+                )
+                if distance_px > self.maximum_center_distance_px:
+                    self._history.clear()
+                    track_reset = True
+            self._last_center = parsed_center
+
+        self._history.append(bool(valid) and parsed_center is not None)
+        valid_count = sum(self._history)
+        return TemporalConfirmation(
+            confirmed=valid_count >= self.required_count,
+            valid_count=valid_count,
+            window_size=self.window_size,
+            observation_count=len(self._history),
+            track_reset=track_reset,
+        )
+
+
+def check_known_size_geometry(
+    box,
+    *,
+    distance_m,
+    focal_length_px,
+    side_length_m=0.057,
+    minimum_scale=0.60,
+    maximum_scale=1.90,
+):
+    """Compare bbox extent with a loose known-size pinhole projection."""
+    try:
+        x_min, y_min, x_max, y_max = (float(value) for value in box)
+        distance_m = float(distance_m)
+        focal_length_px = float(focal_length_px)
+        side_length_m = float(side_length_m)
+        minimum_scale = float(minimum_scale)
+        maximum_scale = float(maximum_scale)
+    except (TypeError, ValueError):
+        raise CubeDepthError('geometry inputs must be numeric')
+
+    values = (
+        x_min,
+        y_min,
+        x_max,
+        y_max,
+        distance_m,
+        focal_length_px,
+        side_length_m,
+        minimum_scale,
+        maximum_scale,
+    )
+    if not all(math.isfinite(value) for value in values):
+        raise CubeDepthError('geometry inputs must be finite')
+    if x_max <= x_min or y_max <= y_min:
+        raise CubeDepthError('box has no positive area')
+    if distance_m <= 0.0 or focal_length_px <= 0.0:
+        raise CubeDepthError('distance and focal length must be positive')
+    if side_length_m <= 0.0:
+        raise CubeDepthError('cube side length must be positive')
+    if minimum_scale <= 0.0 or maximum_scale < minimum_scale:
+        raise CubeDepthError('geometry scale range is invalid')
+
+    expected_pixel_size = focal_length_px * side_length_m / distance_m
+    observed_pixel_size = max(x_max - x_min, y_max - y_min)
+    minimum_pixel_size = expected_pixel_size * minimum_scale
+    maximum_pixel_size = expected_pixel_size * maximum_scale
+    return CubeGeometryCheck(
+        accepted=(
+            minimum_pixel_size
+            <= observed_pixel_size
+            <= maximum_pixel_size
+        ),
+        expected_pixel_size=expected_pixel_size,
+        observed_pixel_size=observed_pixel_size,
+        minimum_pixel_size=minimum_pixel_size,
+        maximum_pixel_size=maximum_pixel_size,
+    )
 
 
 def estimate_cube_depth(
@@ -176,3 +318,15 @@ def _to_metres(raw_values, encoding):
     if float(np.median(raw_values)) > 20.0:
         return raw_values / 1000.0
     return raw_values
+
+
+def _finite_center(center):
+    if center is None:
+        return None
+    try:
+        center_x, center_y = (float(value) for value in center)
+    except (TypeError, ValueError):
+        raise CubeDepthError('candidate center must contain two numbers')
+    if not math.isfinite(center_x) or not math.isfinite(center_y):
+        raise CubeDepthError('candidate center must be finite')
+    return (center_x, center_y)

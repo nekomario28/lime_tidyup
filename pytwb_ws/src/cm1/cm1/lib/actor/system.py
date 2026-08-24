@@ -35,6 +35,8 @@ from .approach_action import ApproachAction
 from .cognitive import CognitiveNetwork
 from ..cube_depth import (
     CubeDepthError,
+    CubeTemporalGate,
+    check_known_size_geometry,
     consistent_depth_median,
     estimate_cube_depth,
 )
@@ -263,6 +265,179 @@ class Tb3NavigationSystem(SubSystem):
         )
 
         return estimate.distance_m
+
+    def _cube_camera_geometry(self):
+        """Return color-camera focal length and image size, or fail closed."""
+        try:
+            camera_info = self.run_actor('camera_info')
+            focal_length_px = float(camera_info.k[0])
+            image_width = float(camera_info.width)
+            image_height = float(camera_info.height)
+        except (AttributeError, IndexError, TypeError, ValueError) as error:
+            print(f'cube candidate: CameraInfo invalid: {error}')
+            return None
+        except Exception as error:
+            print(f'cube candidate: CameraInfo unavailable: {error}')
+            return None
+
+        values = (focal_length_px, image_width, image_height)
+        if not all(math.isfinite(value) and value > 0.0 for value in values):
+            print('cube candidate: CameraInfo has invalid focal/image size')
+            return None
+        return focal_length_px, image_width, image_height
+
+    def _confirm_cube_with_rgbd(
+        self,
+        *,
+        threshold,
+        depth_sample_count,
+        depth_roi_fraction,
+        depth_minimum_valid_ratio,
+        depth_maximum_mad_m,
+        depth_maximum_spread_m,
+        cube_side_length_m,
+        geometry_minimum_scale,
+        geometry_maximum_scale,
+        temporal_window_size,
+        temporal_required_count,
+        temporal_center_distance_px,
+    ):
+        """Confirm a YOLO candidate with Depth, size and temporal evidence."""
+        camera_geometry = self._cube_camera_geometry()
+        if camera_geometry is None:
+            return None
+        focal_length_px, image_width, image_height = camera_geometry
+
+        try:
+            temporal_gate = CubeTemporalGate(
+                window_size=temporal_window_size,
+                required_count=temporal_required_count,
+                maximum_center_distance_px=temporal_center_distance_px,
+            )
+        except CubeDepthError as error:
+            print(f'cube candidate: temporal configuration invalid: {error}')
+            return None
+
+        accepted_depths = []
+        accepted_detection = None
+        accepted_confidence = 0.0
+
+        for observation_index in range(1, temporal_window_size + 1):
+            detection, confidence = self._read_best_cube_detection()
+            box = detection.get('box_xyxy', []) if detection else []
+            center = None
+            if len(box) == 4:
+                try:
+                    center = (
+                        (float(box[0]) + float(box[2])) / 2.0,
+                        (float(box[1]) + float(box[3])) / 2.0,
+                    )
+                except (TypeError, ValueError):
+                    center = None
+
+            depth = None
+            geometry = None
+            evidence_valid = False
+            if detection is not None and confidence >= threshold and center:
+                sample_depths = []
+                for sample_index in range(depth_sample_count):
+                    sample_depth = self._cube_depth_from_box(
+                        box,
+                        rgb_width=image_width,
+                        rgb_height=image_height,
+                        roi_fraction=depth_roi_fraction,
+                        minimum_valid_ratio=depth_minimum_valid_ratio,
+                        maximum_mad_m=depth_maximum_mad_m,
+                    )
+                    if sample_depth is None:
+                        break
+                    sample_depths.append(sample_depth)
+                    if sample_index + 1 < depth_sample_count:
+                        self.run_actor('sleep', 0.1)
+
+                if len(sample_depths) == depth_sample_count:
+                    try:
+                        depth = consistent_depth_median(
+                            sample_depths,
+                            maximum_spread_m=depth_maximum_spread_m,
+                        )
+                        geometry = check_known_size_geometry(
+                            box,
+                            distance_m=depth,
+                            focal_length_px=focal_length_px,
+                            side_length_m=cube_side_length_m,
+                            minimum_scale=geometry_minimum_scale,
+                            maximum_scale=geometry_maximum_scale,
+                        )
+                        evidence_valid = geometry.accepted
+                    except CubeDepthError as error:
+                        print(f'cube candidate rejected: {error}')
+
+            try:
+                temporal = temporal_gate.update(
+                    center,
+                    valid=evidence_valid,
+                )
+            except CubeDepthError as error:
+                print(f'cube candidate rejected: {error}')
+                return None
+
+            if temporal.track_reset:
+                accepted_depths.clear()
+                accepted_detection = None
+                accepted_confidence = 0.0
+            if evidence_valid:
+                accepted_depths.append(depth)
+                accepted_detection = detection
+                accepted_confidence = confidence
+
+            depth_text = 'invalid' if depth is None else f'{depth:.3f}m'
+            expected_text = (
+                'n/a'
+                if geometry is None
+                else f'{geometry.expected_pixel_size:.1f}'
+            )
+            observed_text = (
+                'n/a'
+                if geometry is None
+                else f'{geometry.observed_pixel_size:.1f}'
+            )
+            geometry_text = (
+                'PASS' if geometry is not None and geometry.accepted
+                else 'FAIL'
+            )
+            print(
+                f'cube candidate: frame={observation_index}/'
+                f'{temporal_window_size}, score={confidence:.3f}, '
+                f'depth={depth_text}, expected_px={expected_text}, '
+                f'observed_px={observed_text}, geometry={geometry_text}, '
+                f'temporal={temporal.valid_count}/'
+                f'{temporal.window_size}, '
+                f'confirmed={str(temporal.confirmed).lower()}'
+            )
+
+            if temporal.confirmed:
+                try:
+                    confirmed_depth = consistent_depth_median(
+                        accepted_depths,
+                        maximum_spread_m=depth_maximum_spread_m,
+                    )
+                except CubeDepthError as error:
+                    print(f'cube candidate rejected: {error}')
+                    return None
+                return (
+                    accepted_detection,
+                    accepted_confidence,
+                    confirmed_depth,
+                    image_width,
+                    image_height,
+                )
+
+        print(
+            f'cube candidate: temporal confirmation failed '
+            f'({temporal.valid_count}/{temporal.window_size})'
+        )
+        return None
 
     def _read_best_cube_detection(self):
         """
@@ -560,7 +735,13 @@ class Tb3NavigationSystem(SubSystem):
         depth_roi_fraction=0.0,
         depth_minimum_valid_ratio=0.0,
         depth_maximum_mad_m=10.0,
-        depth_maximum_spread_m=10.0
+        depth_maximum_spread_m=10.0,
+        cube_side_length_m=0.0,
+        geometry_minimum_scale=0.60,
+        geometry_maximum_scale=1.90,
+        temporal_window_size=1.0,
+        temporal_required_count=1.0,
+        temporal_center_distance_px=60.0
     ):
         """
         YOLOと品質ゲート済みDepthを取得し、
@@ -596,6 +777,15 @@ class Tb3NavigationSystem(SubSystem):
         depth_minimum_valid_ratio = float(depth_minimum_valid_ratio)
         depth_maximum_mad_m = float(depth_maximum_mad_m)
         depth_maximum_spread_m = float(depth_maximum_spread_m)
+        cube_side_length_m = float(cube_side_length_m)
+        geometry_minimum_scale = float(geometry_minimum_scale)
+        geometry_maximum_scale = float(geometry_maximum_scale)
+        temporal_window_size = max(1, int(float(temporal_window_size)))
+        temporal_required_count = max(
+            1,
+            int(float(temporal_required_count)),
+        )
+        temporal_center_distance_px = float(temporal_center_distance_px)
 
         # 外から変更しない固定値
         horizontal_fov = 60.0
@@ -614,100 +804,100 @@ class Tb3NavigationSystem(SubSystem):
             print('go_front_cube: forward_speedが0です')
             return False
 
-        # --------------------------------
-        # 1. YOLOの検出結果を1回取得
-        # --------------------------------
-        # YOLOを最大5回確認する
         best_detection = None
         best_confidence = 0.0
-        max_retry = 5
-
-        for retry_count in range(1, max_retry + 1):
-            best_detection, best_confidence = (
-                self._read_best_cube_detection()
-            )
-
-            print(
-                f'go_front_cube: YOLO確認 '
-                f'{retry_count}/{max_retry}, '
-                f'confidence={best_confidence:.3f}'
-            )
-
-            if (
-                best_detection is not None
-                and best_confidence >= threshold
-            ):
-                break
-
-            self.run_actor('sleep', 0.3)
-
-        else:
-            print(
-                f'go_front_cube: YOLO取得失敗 '
-                f'{max_retry}回すべて失敗'
-            )
-
-            self.run_actor('motor', Twist())
-            return False
-
-        # --------------------------------
-        # 2. YOLOのboxを取得
-        # --------------------------------
-        box = best_detection.get('box_xyxy', [])
-
-        if len(box) != 4:
-            miss_count += 1
-
-            print(
-                f'go_front_cube: YOLOのbox_xyxy取得失敗 '
-                f'miss_count={miss_count}, '
-                f'box={box}'
-            )
-
-            return False
-
-        # --------------------------------
-        # 3. 検証済み3D Poseを優先し、なければDepthへ戻る
-        # --------------------------------
         distance = None
         distance_source = 'depth'
 
-        if use_pose_3d:
-            distance = accepted_pose_distance(
-                best_detection,
-                maximum_reprojection_error_px=(
-                    pose_max_reprojection_error_px
-                )
+        # cube_side_length_m > 0 enables the ccc-only RGB-D confirmation.
+        if cube_side_length_m > 0.0:
+            confirmed = self._confirm_cube_with_rgbd(
+                threshold=threshold,
+                depth_sample_count=depth_sample_count,
+                depth_roi_fraction=depth_roi_fraction,
+                depth_minimum_valid_ratio=depth_minimum_valid_ratio,
+                depth_maximum_mad_m=depth_maximum_mad_m,
+                depth_maximum_spread_m=depth_maximum_spread_m,
+                cube_side_length_m=cube_side_length_m,
+                geometry_minimum_scale=geometry_minimum_scale,
+                geometry_maximum_scale=geometry_maximum_scale,
+                temporal_window_size=temporal_window_size,
+                temporal_required_count=temporal_required_count,
+                temporal_center_distance_px=temporal_center_distance_px,
             )
-            distance_source = 'pose_3d'
-
-        if distance is None:
-            depth_distances = []
-            for sample_index in range(depth_sample_count):
-                sample_distance = self._cube_depth_from_box(
-                    box,
-                    rgb_width=image_width,
-                    rgb_height=image_height,
-                    roi_fraction=depth_roi_fraction,
-                    minimum_valid_ratio=depth_minimum_valid_ratio,
-                    maximum_mad_m=depth_maximum_mad_m,
+            if confirmed is not None:
+                (
+                    best_detection,
+                    best_confidence,
+                    distance,
+                    image_width,
+                    image_height,
+                ) = confirmed
+                distance_source = (
+                    f'rgbd_geometry_temporal_'
+                    f'{temporal_required_count}_of_{temporal_window_size}'
                 )
-                if sample_distance is None:
-                    distance = None
+        else:
+            # Preserve the existing behavior for trees not opting into the gate.
+            max_retry = 5
+            for retry_count in range(1, max_retry + 1):
+                best_detection, best_confidence = (
+                    self._read_best_cube_detection()
+                )
+                print(
+                    f'go_front_cube: YOLO確認 '
+                    f'{retry_count}/{max_retry}, '
+                    f'confidence={best_confidence:.3f}'
+                )
+                if (
+                    best_detection is not None
+                    and best_confidence >= threshold
+                ):
                     break
-                depth_distances.append(sample_distance)
-                if sample_index + 1 < depth_sample_count:
-                    self.run_actor('sleep', 0.1)
+                self.run_actor('sleep', 0.3)
             else:
-                try:
-                    distance = consistent_depth_median(
-                        depth_distances,
-                        maximum_spread_m=depth_maximum_spread_m,
+                self.run_actor('motor', Twist())
+                return False
+
+            if use_pose_3d:
+                distance = accepted_pose_distance(
+                    best_detection,
+                    maximum_reprojection_error_px=(
+                        pose_max_reprojection_error_px
                     )
-                except CubeDepthError as error:
-                    print(f'go_front_cube: Depth不整合: {error}')
-                    distance = None
-            distance_source = f'depth_median_{len(depth_distances)}'
+                )
+                distance_source = 'pose_3d'
+
+            box = best_detection.get('box_xyxy', [])
+            if len(box) != 4:
+                print(f'go_front_cube: box_xyxy取得失敗: {box}')
+                return False
+
+            if distance is None:
+                depth_distances = []
+                for sample_index in range(depth_sample_count):
+                    sample_distance = self._cube_depth_from_box(
+                        box,
+                        rgb_width=image_width,
+                        rgb_height=image_height,
+                        roi_fraction=depth_roi_fraction,
+                        minimum_valid_ratio=depth_minimum_valid_ratio,
+                        maximum_mad_m=depth_maximum_mad_m,
+                    )
+                    if sample_distance is None:
+                        break
+                    depth_distances.append(sample_distance)
+                    if sample_index + 1 < depth_sample_count:
+                        self.run_actor('sleep', 0.1)
+                if len(depth_distances) == depth_sample_count:
+                    try:
+                        distance = consistent_depth_median(
+                            depth_distances,
+                            maximum_spread_m=depth_maximum_spread_m,
+                        )
+                    except CubeDepthError as error:
+                        print(f'go_front_cube: Depth不整合: {error}')
+                distance_source = f'depth_median_{len(depth_distances)}'
 
         if distance is None:
             miss_count += 1
@@ -717,6 +907,11 @@ class Tb3NavigationSystem(SubSystem):
                 f'miss_count={miss_count}'
             )
 
+            return False
+
+        box = best_detection.get('box_xyxy', [])
+        if len(box) != 4:
+            print(f'go_front_cube: confirmed box_xyxy invalid: {box}')
             return False
 
         # --------------------------------
