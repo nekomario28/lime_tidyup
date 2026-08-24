@@ -41,7 +41,9 @@ cleanup() {
     fi
     if ${started} && ! ${keep_running}; then
         echo "[ccc] stopping containers"
-        "${compose[@]}" down >/dev/null
+        if ! "${compose[@]}" down --timeout 3 >/dev/null 2>&1; then
+            echo "[ccc] failed to stop containers; run docker compose down" >&2
+        fi
     elif ${started}; then
         echo "[ccc] containers kept running (--keep)"
     fi
@@ -95,8 +97,8 @@ trap cleanup EXIT
 cd "${project_dir}"
 
 echo "[ccc] starting Lime and YOLO containers"
-run "${compose[@]}" up -d --no-build lime_simul_demo_yuu yolo
 started=true
+run "${compose[@]}" up -d --no-build lime_simul_demo_yuu yolo
 
 yolo_command='mkdir -p /tmp/lime-ccc; source /opt/ros/humble/setup.bash; source /root/yolo_ws/install/setup.bash; exec ros2 run barcode_detector yolo_pose_node >>/tmp/lime-ccc/yolo.log 2>&1'
 printf -v map_file_quoted '%q' "${map_file}"
@@ -130,7 +132,7 @@ if ! ${dry_run}; then
 fi
 
 register_command="source /opt/ros/humble/setup.bash; source /project/lib_ws/install/setup.bash; source /root/turtlebot3_ws/install/setup.bash; cd /root/pytwb_ws; printf 'create cm1\\nY\\nexit\\n' | pytwb"
-cm1_command='source /opt/ros/humble/setup.bash; source /project/lib_ws/install/setup.bash; source /root/turtlebot3_ws/install/setup.bash; cd /root/pytwb_ws/src; exec python3 cm1'
+cm1_command='source /opt/ros/humble/setup.bash; source /project/lib_ws/install/setup.bash; source /root/turtlebot3_ws/install/setup.bash; cd /root/pytwb_ws/src; child=; stop_cm1() { if [[ -n "${child}" ]]; then kill -TERM "${child}" 2>/dev/null || true; sleep 1; kill -KILL "${child}" 2>/dev/null || true; fi; exit 130; }; trap stop_cm1 INT TERM; python3 cm1 <&0 & child=$!; wait "${child}"'
 
 echo "[ccc] registering cm1"
 run "${compose[@]}" exec -T lime_simul_demo_yuu \
