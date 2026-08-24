@@ -1,0 +1,141 @@
+#!/usr/bin/env bash
+
+set -Eeuo pipefail
+
+script_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+project_dir="$(cd -- "${script_dir}/.." && pwd)"
+compose=(
+    docker compose
+    -f "${project_dir}/docker-compose.yaml"
+    -f "${project_dir}/docker-compose.ccc.yaml"
+)
+map_file="/root/practice_ws/maps/oc4.yaml"
+dry_run=false
+keep_running=false
+started=false
+
+usage() {
+    echo "Usage: ./bin/ccc [--dry-run] [--keep] [--map PATH]"
+    echo "  --dry-run  Print commands without starting Docker or ROS."
+    echo "  --keep     Leave the two containers running after cm1 exits."
+    echo "  --map      Override the Nav2 map path inside the Lime container."
+}
+
+show_command() {
+    printf ' +'
+    printf ' %q' "$@"
+    printf '\n'
+}
+
+run() {
+    if ${dry_run}; then
+        show_command "$@"
+    else
+        "$@"
+    fi
+}
+
+cleanup() {
+    if ${dry_run}; then
+        return
+    fi
+    if ${started} && ! ${keep_running}; then
+        echo "[ccc] stopping containers"
+        "${compose[@]}" down >/dev/null
+    elif ${started}; then
+        echo "[ccc] containers kept running (--keep)"
+    fi
+}
+
+while (($# > 0)); do
+    case "$1" in
+        --dry-run)
+            dry_run=true
+            ;;
+        --keep)
+            keep_running=true
+            ;;
+        --map)
+            if (($# < 2)); then
+                echo "[ccc] --map requires a path" >&2
+                exit 2
+            fi
+            map_file="$2"
+            shift
+            ;;
+        -h|--help)
+            usage
+            exit 0
+            ;;
+        *)
+            echo "[ccc] unknown option: $1" >&2
+            usage >&2
+            exit 2
+            ;;
+    esac
+    shift
+done
+
+if ! ${dry_run}; then
+    command -v docker >/dev/null || {
+        echo "[ccc] docker was not found" >&2
+        exit 1
+    }
+    docker compose version >/dev/null || {
+        echo "[ccc] docker compose was not found" >&2
+        exit 1
+    }
+    if [[ -z "${DISPLAY:-}" ]]; then
+        echo "[ccc] DISPLAY is empty; connect with ssh -XY" >&2
+        exit 1
+    fi
+fi
+
+trap cleanup EXIT
+cd "${project_dir}"
+
+echo "[ccc] starting Lime and YOLO containers"
+run "${compose[@]}" up -d --no-build lime_simul_demo_yuu yolo
+started=true
+
+yolo_command='mkdir -p /tmp/lime-ccc; source /opt/ros/humble/setup.bash; source /root/yolo_ws/install/setup.bash; exec ros2 run barcode_detector yolo_pose_node >>/tmp/lime-ccc/yolo.log 2>&1'
+printf -v map_file_quoted '%q' "${map_file}"
+navigation_command="mkdir -p /tmp/lime-ccc; source /opt/ros/humble/setup.bash; source /project/lib_ws/install/setup.bash; source /root/turtlebot3_ws/install/setup.bash; exec ros2 launch turtlebot3_lime_navigation2 navigation2.launch.py map_yaml_file:=${map_file_quoted} >>/tmp/lime-ccc/navigation.log 2>&1"
+moveit_command='mkdir -p /tmp/lime-ccc; source /opt/ros/humble/setup.bash; source /project/lib_ws/install/setup.bash; source /root/turtlebot3_ws/install/setup.bash; exec ros2 launch turtlebot3_lime_moveit_config moveit_core.launch.py >>/tmp/lime-ccc/moveit.log 2>&1'
+
+echo "[ccc] starting YOLO, Nav2 and MoveIt"
+run "${compose[@]}" exec -T -d yolo bash -lc "${yolo_command}"
+run "${compose[@]}" exec -T -d lime_simul_demo_yuu \
+    bash -lc "${navigation_command}"
+run "${compose[@]}" exec -T -d lime_simul_demo_yuu \
+    bash -lc "${moveit_command}"
+
+if ! ${dry_run}; then
+    sleep 2
+    checks=(
+        'yolo:yolo_pose_node:/tmp/lime-ccc/yolo.log'
+        'lime_simul_demo_yuu:navigation2.launch.py:/tmp/lime-ccc/navigation.log'
+        'lime_simul_demo_yuu:moveit_core.launch.py:/tmp/lime-ccc/moveit.log'
+    )
+    for check in "${checks[@]}"; do
+        IFS=: read -r service pattern log_path <<<"${check}"
+        if ! "${compose[@]}" exec -T "${service}" \
+            pgrep -f "${pattern}" >/dev/null; then
+            echo "[ccc] ${pattern} failed; ${service}:${log_path}" >&2
+            "${compose[@]}" exec -T "${service}" \
+                tail -n 40 "${log_path}" >&2 || true
+            exit 1
+        fi
+    done
+fi
+
+register_command="source /opt/ros/humble/setup.bash; source /project/lib_ws/install/setup.bash; source /root/turtlebot3_ws/install/setup.bash; cd /root/pytwb_ws; printf 'create cm1\\nY\\nexit\\n' | pytwb"
+cm1_command='source /opt/ros/humble/setup.bash; source /project/lib_ws/install/setup.bash; source /root/turtlebot3_ws/install/setup.bash; cd /root/pytwb_ws/src; exec python3 cm1'
+
+echo "[ccc] registering cm1"
+run "${compose[@]}" exec -T lime_simul_demo_yuu \
+    bash -lc "${register_command}"
+
+echo "[ccc] opening cm1 command prompt; type ccc at the \$ prompt"
+echo "[ccc] Ctrl-C exits and stops this automated environment"
+run "${compose[@]}" exec lime_simul_demo_yuu bash -lc "${cm1_command}"

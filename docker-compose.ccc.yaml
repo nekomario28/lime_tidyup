@@ -1,0 +1,6 @@
+services:
+  lime_simul_demo_yuu:
+    command: ["sleep", "infinity"]
+
+  yolo:
+    command: ["sleep", "infinity"]
