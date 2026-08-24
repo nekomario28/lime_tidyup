@@ -26,7 +26,7 @@ WHISPER_PROMPT = (
 )
 
 # 音声から移動先を判定するルール
-_GO_KEYWORDS = re.compile(r"行|いって|移動|向か")
+_GO_KEYWORDS = re.compile(r"行|いって|移動|向か|進ん|運ん|運ぶ|go|move|to")
 _DESTINATION_RULES = (
     (re.compile(r"[Aa]|えー|エー|えい"), "A"),
     (re.compile(r"[Bb]|びー|ビー|びい|ピー|ぴー|ぴい|ピイ|ヴィ|ヴィー"), "B"),
