@@ -23,7 +23,7 @@
             <GoFrontCube
                 name="go_front_cube"
                 threshold="[0.2]"
-                stop_distance="[0.20]"
+                stop_distance="[0.30]"
                 forward_speed="[0.5]"
                 turn_speed="[0.30]"
                 target_offset_px="[40]"/>
@@ -33,7 +33,7 @@
                 threshold="[0.30]"
                 turn_speed="[0.30]"
                 center_tolerance="[20.0]"/>
-
+  
             <!-- 5. アームを物をつかむ姿勢にする -->
             <Open name="hirou"/>  
             <Hirou_Pose name="hirou_pose"/>
@@ -41,7 +41,7 @@
             <!-- 6. その姿勢のまま40cm前進する -->
             <Walk
                 name="walk_forward_40cm"
-                distance="[0.30]"/>
+                distance="[0.40]"/>
 
             <!-- 7. 少しだけ左へ旋回する -->
             <TurnLeft
