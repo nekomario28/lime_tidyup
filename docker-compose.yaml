@@ -16,5 +16,11 @@ services:
       - ./roscommon:/root/roscommon:rw
       - $HOME/.Xauthority:/root/.Xauthority
       - ./practice_ws:/root/practice_ws:rw
-    command: xterm -fn 12X24 -display ${DISPLAY} -T 'cm main'
+      - type: bind
+        source: /tmp/.X11-unix
+        target: /tmp/.X11-unix
+      - type: bind
+        source: '${XDG_RUNTIME_DIR}/wayland-0'
+        target: /tmp/wayland-0
+    command: xterm -fa 'Hack' -fs 24 -display ${DISPLAY} -T 'cm main'
 
