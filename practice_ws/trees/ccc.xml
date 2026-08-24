@@ -26,7 +26,13 @@
                 forward_speed="[0.15]"
                 turn_speed="[0.15]"
                 target_offset_px="[40]"
-                pose_max_reprojection_error_px="[1.5]"/>
+                pose_max_reprojection_error_px="[1.5]"
+                use_pose_3d="[0]"
+                depth_sample_count="[3]"
+                depth_roi_fraction="[0.35]"
+                depth_minimum_valid_ratio="[0.60]"
+                depth_maximum_mad_m="[0.025]"
+                depth_maximum_spread_m="[0.030]"/>
             <!-- 4. 接近後、もう一度キューブを中央に合わせる -->
             <TakeAim
                 name="take_aim_after_approach"

@@ -33,6 +33,11 @@ import pyrealsense2 as rs
 from ros_actor import actor, SubSystem
 from .approach_action import ApproachAction
 from .cognitive import CognitiveNetwork
+from ..cube_depth import (
+    CubeDepthError,
+    consistent_depth_median,
+    estimate_cube_depth,
+)
 from ..cube_pose import accepted_pose_distance
 from .manipulator import ManipulatorNetwork
 from .tools import Tools
@@ -158,10 +163,13 @@ class Tb3NavigationSystem(SubSystem):
         self,
         box,
         rgb_width=848.0,
-        rgb_height=480.0
+        rgb_height=480.0,
+        roi_fraction=0.0,
+        minimum_valid_ratio=0.0,
+        maximum_mad_m=10.0
     ):
         """
-        YOLOのバウンディングボックス中央付近からDepthを取得する。
+        YOLOのバウンディングボックス内側から品質付きDepthを取得する。
 
         引数:
             box:
@@ -219,126 +227,43 @@ class Tb3NavigationSystem(SubSystem):
             )
             return None
 
-        # Depth画像の実際のサイズ
-        depth_height, depth_width = depth_image.shape[:2]
-
-        # -----------------------------
-        # 3. RGB座標をDepth座標へ変換
-        # -----------------------------
-        try:
-            x_min = float(box[0])
-            y_min = float(box[1])
-            x_max = float(box[2])
-            y_max = float(box[3])
-        except (
-            TypeError,
-            ValueError,
-            IndexError
-        ) as error:
-            print(
-                f'_cube_depth_from_box: '
-                f'box変換失敗: {error}'
-            )
-            return None
-
-        scale_x = depth_width / float(rgb_width)
-        scale_y = depth_height / float(rgb_height)
-
-        center_x = int(
-            ((x_min + x_max) / 2.0) * scale_x
-        )
-
-        center_y = int(
-            ((y_min + y_max) / 2.0) * scale_y
-        )
-
-        # 配列の範囲外を防ぐ
-        center_x = max(
-            0,
-            min(center_x, depth_width - 1)
-        )
-
-        center_y = max(
-            0,
-            min(center_y, depth_height - 1)
-        )
-
-        # -----------------------------
-        # 4. 中央1点ではなく周辺領域を使う
-        # -----------------------------
-        radius = 5
-
-        x1 = max(0, center_x - radius)
-        x2 = min(depth_width, center_x + radius + 1)
-
-        y1 = max(0, center_y - radius)
-        y2 = min(depth_height, center_y + radius + 1)
-
-        depth_region = depth_image[
-            y1:y2,
-            x1:x2
-        ].astype(np.float32)
-
-        # NaN、inf、0を除外
-        valid_depths = depth_region[
-            np.isfinite(depth_region)
-            & (depth_region > 0.0)
-        ]
-
-        if valid_depths.size == 0:
-            print(
-                '_cube_depth_from_box: '
-                '有効なDepth値がありません'
-            )
-            return None
-
-        # ノイズに強い中央値を使う
-        raw_distance = float(
-            np.median(valid_depths)
-        )
-
-        # -----------------------------
-        # 5. 単位をメートルへ変換
-        # -----------------------------
         encoding = getattr(
             depth_msg,
             'encoding',
             ''
         )
-
-        # 16UC1なら通常はミリメートル
-        if encoding in ('16UC1', 'mono16'):
-            distance_m = raw_distance / 1000.0
-
-        # 32FC1なら通常はメートル
-        elif encoding == '32FC1':
-            distance_m = raw_distance
-
-        else:
-            # encodingが不明な場合の簡易判定
-            if raw_distance > 20.0:
-                distance_m = raw_distance / 1000.0
-            else:
-                distance_m = raw_distance
-
-        # 異常値を除外
-        if not (0.05 <= distance_m <= 10.0):
+        try:
+            estimate = estimate_cube_depth(
+                depth_image,
+                box,
+                encoding=encoding,
+                rgb_width=rgb_width,
+                rgb_height=rgb_height,
+                roi_fraction=roi_fraction,
+                minimum_valid_ratio=minimum_valid_ratio,
+                maximum_mad_m=maximum_mad_m,
+            )
+        except CubeDepthError as error:
             print(
                 f'_cube_depth_from_box: '
-                f'Depth値が範囲外です: '
-                f'{distance_m:.3f}m'
+                f'Depth品質不足: {error}'
             )
             return None
 
+        depth_height, depth_width = depth_image.shape[:2]
         print(
             f'_cube_depth_from_box: '
             f'encoding={encoding}, '
             f'depth_size={depth_width}x{depth_height}, '
-            f'point=({center_x}, {center_y}), '
-            f'distance={distance_m:.3f}m'
+            f'roi={estimate.roi_xyxy}, '
+            f'samples={estimate.sample_count}, '
+            f'valid_ratio={estimate.valid_ratio:.3f}, '
+            f'mad={estimate.mad_m:.3f}m, '
+            f'distance={estimate.distance_m:.3f}m'
         )
 
-        return distance_m
+        return estimate.distance_m
+
     def _read_best_cube_detection(self):
         """
         /cube_pose_resultからYOLOの検出結果を取得し、
@@ -629,10 +554,16 @@ class Tb3NavigationSystem(SubSystem):
         forward_speed=0.03,
         turn_speed=0.20,
         target_offset_px=40.0,
-        pose_max_reprojection_error_px=4.0
+        pose_max_reprojection_error_px=4.0,
+        use_pose_3d=1.0,
+        depth_sample_count=1.0,
+        depth_roi_fraction=0.0,
+        depth_minimum_valid_ratio=0.0,
+        depth_maximum_mad_m=10.0,
+        depth_maximum_spread_m=10.0
     ):
         """
-        YOLOとDepthを1回取得し、
+        YOLOと品質ゲート済みDepthを取得し、
 
         1. キューブの横ずれから旋回秒数を計算
         2. 計算した時間だけ旋回
@@ -659,6 +590,12 @@ class Tb3NavigationSystem(SubSystem):
         pose_max_reprojection_error_px = float(
             pose_max_reprojection_error_px
         )
+        use_pose_3d = float(use_pose_3d) >= 0.5
+        depth_sample_count = max(1, int(float(depth_sample_count)))
+        depth_roi_fraction = float(depth_roi_fraction)
+        depth_minimum_valid_ratio = float(depth_minimum_valid_ratio)
+        depth_maximum_mad_m = float(depth_maximum_mad_m)
+        depth_maximum_spread_m = float(depth_maximum_spread_m)
 
         # 外から変更しない固定値
         horizontal_fov = 60.0
@@ -732,21 +669,45 @@ class Tb3NavigationSystem(SubSystem):
         # --------------------------------
         # 3. 検証済み3D Poseを優先し、なければDepthへ戻る
         # --------------------------------
-        distance = accepted_pose_distance(
-            best_detection,
-            maximum_reprojection_error_px=(
-                pose_max_reprojection_error_px
+        distance = None
+        distance_source = 'depth'
+
+        if use_pose_3d:
+            distance = accepted_pose_distance(
+                best_detection,
+                maximum_reprojection_error_px=(
+                    pose_max_reprojection_error_px
+                )
             )
-        )
-        distance_source = 'pose_3d'
+            distance_source = 'pose_3d'
 
         if distance is None:
-            distance = self._cube_depth_from_box(
-                box,
-                rgb_width=image_width,
-                rgb_height=image_height
-            )
-            distance_source = 'depth'
+            depth_distances = []
+            for sample_index in range(depth_sample_count):
+                sample_distance = self._cube_depth_from_box(
+                    box,
+                    rgb_width=image_width,
+                    rgb_height=image_height,
+                    roi_fraction=depth_roi_fraction,
+                    minimum_valid_ratio=depth_minimum_valid_ratio,
+                    maximum_mad_m=depth_maximum_mad_m,
+                )
+                if sample_distance is None:
+                    distance = None
+                    break
+                depth_distances.append(sample_distance)
+                if sample_index + 1 < depth_sample_count:
+                    self.run_actor('sleep', 0.1)
+            else:
+                try:
+                    distance = consistent_depth_median(
+                        depth_distances,
+                        maximum_spread_m=depth_maximum_spread_m,
+                    )
+                except CubeDepthError as error:
+                    print(f'go_front_cube: Depth不整合: {error}')
+                    distance = None
+            distance_source = f'depth_median_{len(depth_distances)}'
 
         if distance is None:
             miss_count += 1
