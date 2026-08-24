@@ -330,7 +330,9 @@ class YoloPoseNode(Node):
             debug_msg.header = image_msg.header
             self.debug_publisher.publish(debug_msg)
 
-        if self.debug_image_path:
+        # Keep the last useful persisted evidence. Empty inference frames are
+        # still published on the debug topic but must not erase a detection.
+        if self.debug_image_path and detections:
             if not cv2.imwrite(self.debug_image_path, debug_image):
                 self.get_logger().warning(
                     f'failed to write debug image: {self.debug_image_path}'
