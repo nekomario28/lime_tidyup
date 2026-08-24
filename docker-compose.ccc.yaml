@@ -5,6 +5,10 @@ services:
       ROS_DOMAIN_ID: "20"
       RMW_IMPLEMENTATION: rmw_cyclonedds_cpp
       CYCLONEDDS_URI: /root/bin/cyclone.xml
+    volumes:
+      - ${CCC_EVIDENCE_DIR:-./yolo_ws/log/ccc/direct-compose}:/root/ccc_evidence:rw
 
   yolo:
     command: ["sleep", "infinity"]
+    volumes:
+      - ${CCC_EVIDENCE_DIR:-./yolo_ws/log/ccc/direct-compose}:/root/ccc_evidence:rw

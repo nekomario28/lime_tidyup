@@ -13,12 +13,14 @@ map_file="/root/practice_ws/maps/oc4.yaml"
 dry_run=false
 keep_running=false
 started=false
+evidence_dir="${CCC_EVIDENCE_DIR:-}"
 
 usage() {
-    echo "Usage: ./bin/ccc [--dry-run] [--keep] [--map PATH]"
-    echo "  --dry-run  Print commands without starting Docker or ROS."
-    echo "  --keep     Leave the two containers running after cm1 exits."
-    echo "  --map      Override the Nav2 map path inside the Lime container."
+    echo "Usage: ./bin/ccc [--dry-run] [--keep] [--map PATH] [--evidence-dir PATH]"
+    echo "  --dry-run      Print commands without starting Docker or ROS."
+    echo "  --keep         Leave the two containers running after cm1 exits."
+    echo "  --map          Override the Nav2 map path inside the Lime container."
+    echo "  --evidence-dir Persist logs/debug evidence under PATH on the host."
 }
 
 show_command() {
@@ -65,6 +67,14 @@ while (($# > 0)); do
             map_file="$2"
             shift
             ;;
+        --evidence-dir)
+            if (($# < 2)); then
+                echo "[ccc] --evidence-dir requires a path" >&2
+                exit 2
+            fi
+            evidence_dir="$2"
+            shift
+            ;;
         -h|--help)
             usage
             exit 0
@@ -77,6 +87,18 @@ while (($# > 0)); do
     esac
     shift
 done
+
+if [[ -z "${evidence_dir}" ]]; then
+    run_stamp="$(date -u +%Y%m%dT%H%M%SZ)"
+    dev2_short_sha="$(
+        git -C "${project_dir}" rev-parse --short=12 HEAD 2>/dev/null ||
+            printf 'unknown'
+    )"
+    evidence_dir="${project_dir}/yolo_ws/log/ccc/${run_stamp}-${dev2_short_sha}"
+elif [[ "${evidence_dir}" != /* ]]; then
+    evidence_dir="${project_dir}/${evidence_dir}"
+fi
+export CCC_EVIDENCE_DIR="${evidence_dir}"
 
 if ! ${dry_run}; then
     command -v docker >/dev/null || {
@@ -96,6 +118,9 @@ fi
 trap cleanup EXIT
 cd "${project_dir}"
 
+run mkdir -p "${evidence_dir}"
+echo "[ccc] evidence: ${evidence_dir}"
+
 echo "[ccc] starting Lime and YOLO containers"
 started=true
 run "${compose[@]}" up -d --no-build lime_simul_demo_yuu yolo
@@ -104,10 +129,10 @@ echo "[ccc] rebuilding barcode_detector from mounted dev2 source"
 yolo_build_command='set -Eeuo pipefail; source /opt/ros/humble/setup.bash; cd /root/yolo_ws; colcon build --symlink-install --packages-select barcode_detector'
 run "${compose[@]}" exec -T yolo bash -lc "${yolo_build_command}"
 
-yolo_command='mkdir -p /tmp/lime-ccc; source /opt/ros/humble/setup.bash; source /root/yolo_ws/install/setup.bash; exec ros2 run barcode_detector yolo_pose_node --ros-args -p debug_image_path:=/root/yolo_ws/cube_pose_debug.jpg >>/tmp/lime-ccc/yolo.log 2>&1'
+yolo_command='mkdir -p /root/ccc_evidence; source /opt/ros/humble/setup.bash; source /root/yolo_ws/install/setup.bash; exec ros2 run barcode_detector yolo_pose_node --ros-args -p debug_image_path:=/root/ccc_evidence/cube_pose_debug.jpg >>/root/ccc_evidence/yolo.log 2>&1'
 printf -v map_file_quoted '%q' "${map_file}"
-navigation_command="mkdir -p /tmp/lime-ccc; source /opt/ros/humble/setup.bash; source /project/lib_ws/install/setup.bash; source /root/turtlebot3_ws/install/setup.bash; exec ros2 launch turtlebot3_lime_navigation2 navigation2.launch.py map_yaml_file:=${map_file_quoted} >>/tmp/lime-ccc/navigation.log 2>&1"
-moveit_command='mkdir -p /tmp/lime-ccc; source /opt/ros/humble/setup.bash; source /project/lib_ws/install/setup.bash; source /root/turtlebot3_ws/install/setup.bash; exec ros2 launch turtlebot3_lime_moveit_config moveit_core.launch.py >>/tmp/lime-ccc/moveit.log 2>&1'
+navigation_command="mkdir -p /root/ccc_evidence; source /opt/ros/humble/setup.bash; source /project/lib_ws/install/setup.bash; source /root/turtlebot3_ws/install/setup.bash; exec ros2 launch turtlebot3_lime_navigation2 navigation2.launch.py map_yaml_file:=${map_file_quoted} >>/root/ccc_evidence/navigation.log 2>&1"
+moveit_command='mkdir -p /root/ccc_evidence; source /opt/ros/humble/setup.bash; source /project/lib_ws/install/setup.bash; source /root/turtlebot3_ws/install/setup.bash; exec ros2 launch turtlebot3_lime_moveit_config moveit_core.launch.py >>/root/ccc_evidence/moveit.log 2>&1'
 
 echo "[ccc] starting YOLO, Nav2 and MoveIt"
 run "${compose[@]}" exec -T -d yolo bash -lc "${yolo_command}"
@@ -119,9 +144,9 @@ run "${compose[@]}" exec -T -d lime_simul_demo_yuu \
 if ! ${dry_run}; then
     sleep 2
     checks=(
-        'yolo:yolo_pose_node:/tmp/lime-ccc/yolo.log'
-        'lime_simul_demo_yuu:navigation2.launch.py:/tmp/lime-ccc/navigation.log'
-        'lime_simul_demo_yuu:moveit_core.launch.py:/tmp/lime-ccc/moveit.log'
+        'yolo:yolo_pose_node:/root/ccc_evidence/yolo.log'
+        'lime_simul_demo_yuu:navigation2.launch.py:/root/ccc_evidence/navigation.log'
+        'lime_simul_demo_yuu:moveit_core.launch.py:/root/ccc_evidence/moveit.log'
     )
     for check in "${checks[@]}"; do
         IFS=: read -r service pattern log_path <<<"${check}"
