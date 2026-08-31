@@ -20,5 +20,5 @@ services:
       - ./roscommon:/root/roscommon:rw
       - $HOME/.Xauthority:/root/.Xauthority
       - ./practice_ws:/root/practice_ws:rw
-    command: xterm -fn 12X24 -display ${DISPLAY} -T 'cm main'
-
+        #command: xterm -fn 12X24 -display ${DISPLAY} -T 'cm main'
+    command: terminator
