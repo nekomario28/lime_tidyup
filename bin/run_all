@@ -1,7 +1,7 @@
 #!/bin/bash
 #   ONESTAGE_DIR    OneStageROS のパス            (既定: ~/OneStageROS)
 #   ONESTAGE_WORLD  読み込む .world/.sdf          (既定: ~/pytwb_ws/resource/sim_house.world / $HOME 配下必須)
-#   ONESTAGE_SPAWN  "x y yaw" ロボット初期姿勢    (既定: "-0.65 -0.65" / 空にすると SDF の robot マーカー / 原点)
+#   ONESTAGE_SPAWN  "x y yaw" ロボット初期姿勢    (既定: 空 → SDF の spawn/robot マーカー、無ければ原点)
 #   MAP             nav2 の地図 yaml              (既定: /project/resource/map/sim_house_world.yaml)
 #   SERVO_USE_SIM   servo の use_sim              (既定: false)
 
@@ -28,8 +28,8 @@ while [[ $# -gt 0 ]]; do
 done
 
 # 引数が指定されなかった場合、既存の環境変数または既定値を使用
-export ONESTAGE_WORLD="${ONESTAGE_WORLD:-$HOME/pytwb_ws/resource/sim_house.world}"
-export ONESTAGE_SPAWN="${ONESTAGE_SPAWN--0.65 -0.65}"
+export ONESTAGE_WORLD="${ONESTAGE_WORLD:-$HOME/practice_ws/worlds/sim_house.world}"
+export ONESTAGE_SPAWN="${ONESTAGE_SPAWN-}"
 
 ONESTAGE_DIR="${ONESTAGE_DIR:-$HOME/OneStageROS}"
 MAP="${MAP:-/project/resource/map/sim_house_world.yaml}"

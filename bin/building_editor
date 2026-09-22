@@ -1,1 +1,5 @@
+#!/bin/bash
+if [ -d ~/practice_ws ]; then
+    export BUILDING_EDITOR_OBJECTS_DIR=~/practice_ws/objects
+fi
 python3 ~/sdf_building_editor/main.py
