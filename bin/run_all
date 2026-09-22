@@ -1,8 +1,81 @@
+#!/bin/bash
+#   ONESTAGE_DIR    OneStageROS のパス            (既定: ~/OneStageROS)
+#   ONESTAGE_WORLD  読み込む .world/.sdf          (既定: ~/pytwb_ws/resource/sim_house.world / $HOME 配下必須)
+#   ONESTAGE_SPAWN  "x y yaw" ロボット初期姿勢    (既定: "-0.65 -0.65" / 空にすると SDF の robot マーカー / 原点)
+#   MAP             nav2 の地図 yaml              (既定: /project/resource/map/sim_house_world.yaml)
+#   SERVO_USE_SIM   servo の use_sim              (既定: false)
+
+# ----- コマンドライン引数のパース -----
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --world)
+      ONESTAGE_WORLD="$2"
+      shift 2
+      ;;
+    --map)
+      MAP="$2"
+      shift 2
+      ;;
+    -h|--help)
+      echo "Usage: $0 [--world WORLD_FILE] [--map MAP_FILE]"
+      exit 0
+      ;;
+    *)
+      echo "Unknown option: $1"
+      exit 1
+      ;;
+  esac
+done
+
+# 引数が指定されなかった場合、既存の環境変数または既定値を使用
+export ONESTAGE_WORLD="${ONESTAGE_WORLD:-$HOME/pytwb_ws/resource/sim_house.world}"
+export ONESTAGE_SPAWN="${ONESTAGE_SPAWN--0.65 -0.65}"
+
+ONESTAGE_DIR="${ONESTAGE_DIR:-$HOME/OneStageROS}"
+MAP="${MAP:-/project/resource/map/sim_house_world.yaml}"
+SERVO_USE_SIM="${SERVO_USE_SIM:-false}"
+
+source /opt/ros/humble/setup.bash
 source ~/turtlebot3_ws/install/setup.bash
-source ~/roscommon/ws_moveit2/install/setup.bash
-source ~/webots_ws/install/setup.bash
-ros2 launch turtlebot3_lime_webots robot_launch.py world:=sim_house.wbt &
-sleep 5
-ros2 launch turtlebot3_lime_moveit_config servo.launch.py use_sim:=true &
-sleep 1
-ros2 launch turtlebot3_lime_bringup moveit_navigation_use_sim_time.launch.py map_yaml_file:=/project/resource/map/sim_house_world.yaml
+
+pids=()
+cleanup() {
+  echo
+  echo "[run_all_onestage] shutting down..."
+  trap - EXIT INT TERM
+  for p in "${pids[@]}"; do kill "$p" 2>/dev/null; done
+  # OneStageROS(npm→concurrently→node/vite)と、それが起こした rosbridge/rosapi の取りこぼし
+  pkill -f 'server/assets-server.js' 2>/dev/null
+  pkill -f 'rosbridge_websocket'     2>/dev/null
+  pkill -f 'vite'                    2>/dev/null
+  wait 2>/dev/null
+}
+trap cleanup EXIT INT TERM
+
+echo "=== run_all_onestage ==="
+echo "  ONESTAGE_WORLD = $ONESTAGE_WORLD"
+echo "  ONESTAGE_SPAWN = '${ONESTAGE_SPAWN:-(none)}'"
+echo "  MAP            = $MAP"
+echo
+
+# 1. OneStageROS  (rosbridge:9090 / API:8000 / Web:3000, sim_house プリロード)
+echo "[1/4] OneStageROS"
+( cd "$ONESTAGE_DIR" && npm run start ) &
+pids+=($!)
+sleep 8
+
+# 2. ロボット  (robot_state_publisher + fake ros2_control + controllers, rviz なし)
+echo "[2/4] fake robot bringup"
+ros2 launch turtlebot3_lime_bringup fake.launch.py start_rviz:=false &
+pids+=($!)
+sleep 8
+
+# 3. MoveIt Servo  (wall-clock)
+echo "[3/4] moveit servo"
+ros2 launch turtlebot3_lime_moveit_config servo.launch.py use_sim:="$SERVO_USE_SIM" &
+pids+=($!)
+sleep 2
+
+# 4. MoveIt RViz + move_group + Nav2(+RViz)  = rviz ×2, wall-clock
+echo "[4/4] moveit rviz + nav2   map=$MAP"
+ros2 launch turtlebot3_lime_bringup moveit_navigation.launch.py map_yaml_file:="$MAP"

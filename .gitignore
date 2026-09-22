@@ -1,5 +1,9 @@
 roscommon/
 project/test_ws/
+shift_control.csv
+pick_control.csv
+practice_ws/
+
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[cod]

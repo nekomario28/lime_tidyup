@@ -30,6 +30,11 @@ RUN git clone https://github.com/yulat214/OneStageROS.git
 WORKDIR /root/OneStageROS
 RUN npm install
 
+WORKDIR /root
+RUN git clone https://github.com/yulat214/sdf_building_editor.git
+WORKDIR /root/sdf_building_editor
+RUN pip install -r requirements.txt
+
 # --- Webots本体のインストール（cyberbotics公式リポジトリ） ---
 RUN mkdir -p /etc/apt/keyrings && \
     wget -qO- https://cyberbotics.com/Cyberbotics.asc | gpg --dearmor -o /etc/apt/keyrings/cyberbotics.gpg && \

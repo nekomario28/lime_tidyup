@@ -1,0 +1,50 @@
+#!/bin/bash
+
+# 使用例："run_all_webots --world my_world.wbt --map /path/to/custom_map.yaml --mode local"
+# デフォルトはサーバー用なので注意、ローカルで使う場合はmode localを指定すること
+
+MODE="server"
+WORLD_FILE="sim_house.wbt"
+MAP_FILE="/project/resource/map/sim_house_world.yaml"
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --mode)
+      MODE="$2"
+      shift 2
+      ;;
+    --world)
+      WORLD_FILE="$2"
+      shift 2
+      ;;
+    --map)
+      MAP_FILE="$2"
+      shift 2
+      ;;
+    -h|--help)
+      echo "Usage: $0 [--mode local|server] [--world WORLD_FILE] [--map MAP_FILE]"
+      exit 0
+      ;;
+    *)
+      echo "Unknown option: $1"
+      exit 1
+      ;;
+  esac
+done
+
+if [ "$MODE" == "local" ] || [ "${local,,}" == "true" ]; then
+    echo "local mode"
+    VGL=""
+else
+    echo "server mode"
+    VGL="vglrun"
+fi
+
+source ~/turtlebot3_ws/install/setup.bash
+source ~/webots_ws/install/setup.bash
+
+$VGL ros2 launch turtlebot3_lime_webots robot_launch.py world:="$WORLD_FILE" &
+sleep 5
+$VGL ros2 launch turtlebot3_lime_moveit_config servo.launch.py use_sim:=true &
+sleep 1
+$VGL ros2 launch turtlebot3_lime_bringup moveit_navigation_use_sim_time.launch.py map_yaml_file:="$MAP_FILE"
