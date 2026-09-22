@@ -3,7 +3,7 @@ services:
     image: course_lime-image
     build:
       context: .
-      dockerfile: Dockerfile
+      dockerfile: Dockerfile.server
       args:
         ROS_DISTRO: humble
     network_mode: host
