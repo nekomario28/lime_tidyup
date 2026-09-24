@@ -3,9 +3,9 @@ ARG DEBIAN_FRONTEND=noninteractive
 SHELL ["/bin/bash", "-c"]
 
 # If you get a gpg error during docker build, uncomment the following three lines:
-# RUN rm -f /etc/apt/sources.list.d/ros*.list \ /etc/apt/sources.list.d/openrobotics.list
-# RUN curl -sSL https://raw.githubusercontent.com/ros/rosdistro/master/ros.key -o /usr/share/keyrings/ros-archive-keyring.gpg
-# RUN echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/ros-archive-keyring.gpg] http://packages.ros.org/ros2/ubuntu $(. /etc/os-release && echo $UBUNTU_CODENAME) main" | tee /etc/apt/sources.list.d/ros2.list > /dev/null
+RUN rm -f /etc/apt/sources.list.d/ros*.list \ /etc/apt/sources.list.d/openrobotics.list
+RUN curl -sSL https://raw.githubusercontent.com/ros/rosdistro/master/ros.key -o /usr/share/keyrings/ros-archive-keyring.gpg
+RUN echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/ros-archive-keyring.gpg] http://packages.ros.org/ros2/ubuntu $(. /etc/os-release && echo $UBUNTU_CODENAME) main" | tee /etc/apt/sources.list.d/ros2.list > /dev/null
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
  git python3-pip vim eog xterm less wget terminator
@@ -95,6 +95,10 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
  ros-humble-cartographer-ros ros-humble-gripper-controllers \
  ros-humble-tf-transformations ros-humble-rosbridge-suite
 
+RUN F=/opt/ros/${ROS_DISTRO}/local/lib/python3.10/dist-packages/rosbridge_library/internal/message_conversion.py \
+ && grep -q 'return list(standard_b64decode(msg))' "$F" \
+ && sed -i 's/return list(standard_b64decode(msg))/return array.array("B", standard_b64decode(msg))/' "$F"
+
 RUN apt-get update && apt-get install -y --no-install-recommends \
  ros-humble-webots-ros2 \
  ros-humble-webots-ros2-driver \
@@ -117,6 +121,11 @@ RUN git apply turtlebot3_lime_webots.patch && rm turtlebot3_lime_webots.patch
 RUN sed -i -E 's/^(\s*Frame Rate:\s*)[0-9]+/\110/' \
       turtlebot3_lime_navigation2/rviz/navigation2.rviz \
       turtlebot3_lime_moveit_config/config/moveit.rviz
+
+RUN sed -i 's/^\(\s*base_frame_id:\s*\)"base_footprint"/\1"base_link"/' \
+      /root/turtlebot3_ws/turtlebot3_lime/turtlebot3_lime_navigation2/param/turtlebot3.yaml \
+ && grep -q 'base_frame_id: "base_link"' \
+      /root/turtlebot3_ws/turtlebot3_lime/turtlebot3_lime_navigation2/param/turtlebot3.yaml
 
 WORKDIR /root/turtlebot3_ws
 

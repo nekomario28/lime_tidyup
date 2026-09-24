@@ -143,9 +143,28 @@ class Tb3NavigationSystem(SubSystem):
         super().__init__(name, parent)
         self.register_action('navigate', NavigateToPose, "/navigate_to_pose")
         self.register_publisher('motor', Twist, 'cmd_vel', 10)
-        self.register_subscriber('odom', Odometry, 'odom', 10)
+        self.register_subscriber('odom', Odometry, self._select_odom_topic(), 10)
         self.add_network(ApproachAction)
         self.set_value('current_pose', (0.0, 0.0, 0.0))
+
+    # OneStageROS（run_all）ではロボットを動かしているのはブラウザ側で、fake bringup の
+    # diff_drive_controller が出す /odom は車輪位置が変わらないため常に原点のまま。
+    # 実際の動きはブラウザが /onestage/odom に出しているので、それがあればそちらを使う。
+    # Webots・実機では /onestage/odom が存在しないので従来どおり odom。
+    # 環境変数 CM1_ODOM_TOPIC で明示指定も可能。
+    def _select_odom_topic(self, onestage_topic='/onestage/odom', wait_sec=3.0):
+        explicit = os.environ.get('CM1_ODOM_TOPIC')
+        if explicit:
+            print(f'odom topic: {explicit} (CM1_ODOM_TOPIC)')
+            return explicit
+        node = self.get_value('node')
+        deadline = time.time() + wait_sec  # DDS の discovery を少し待つ
+        while time.time() < deadline:
+            if node.count_publishers(onestage_topic) > 0:
+                print(f'odom topic: {onestage_topic} (OneStageROS detected)')
+                return onestage_topic
+            time.sleep(0.2)
+        return 'odom'
     
     def create_move_base_goal(self, x, y, theta):
         """ Creates a MoveBaseGoal message from a 2D navigation pose """
