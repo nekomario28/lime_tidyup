@@ -1,0 +1,46 @@
+#VRML_SIM R2025a utf8
+# Aruco marker box migrated from Gazebo model_editor_models/aruco_box3.
+# Collision uses a plain box (matches the original SDF's box collision
+# exactly); only the visual uses the textured mesh, to avoid the physics
+# instability caused by using a raw concave mesh as a boundingObject
+# (see M1 notes: mesh boundingObjects are not scaled by Webots and can
+# massively interpenetrate everything).
+
+PROTO ArucoBox3 [
+  field SFVec3f    translation 0 0 0
+  field SFRotation rotation    0 0 1 0
+  field SFString   name        "aruco_box3"
+]
+{
+  Solid {
+    translation IS translation
+    rotation IS rotation
+    name IS name
+    children [
+      Transform {
+        scale 0.25 0.25 0.25
+        children [
+          Shape {
+            appearance PBRAppearance {
+              baseColorMap ImageTexture {
+                url [ "./materials/textures/marker_tiles_square.png" ]
+              }
+              roughness 1
+              metalness 0
+            }
+            geometry Mesh {
+              url [ "./model.dae" ]
+            }
+          }
+        ]
+      }
+    ]
+    boundingObject Box {
+      size 0.5 0.5 0.5
+    }
+    physics Physics {
+      density -1
+      mass 1.0
+    }
+  }
+}

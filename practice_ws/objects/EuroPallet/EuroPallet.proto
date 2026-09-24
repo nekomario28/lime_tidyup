@@ -1,0 +1,39 @@
+#VRML_SIM R2025a utf8
+# euro_pallet migrated from Gazebo model_editor_models/euro_pallet.
+# NOTE: the original SDF referenced meshes/pallet.dae, but that mesh file
+# does not actually exist in the project (only model.sdf/model.config are
+# present) -- it was presumably only ever resolved via Gazebo's online
+# model database. Rebuilt here as a simple wood-colored box using
+# standard EUR-pallet dimensions (1200x800x144mm) instead.
+
+PROTO EuroPallet [
+  field SFVec3f    translation 0 0 0
+  field SFRotation rotation    0 0 1 0
+  field SFString   name        "euro_pallet"
+]
+{
+  Solid {
+    translation IS translation
+    rotation IS rotation
+    name IS name
+    children [
+      Shape {
+        appearance PBRAppearance {
+          baseColor 0.65 0.5 0.32
+          roughness 0.95
+          metalness 0
+        }
+        geometry Box {
+          size 1.2 0.8 0.144
+        }
+      }
+    ]
+    boundingObject Box {
+      size 1.2 0.8 0.144
+    }
+    physics Physics {
+      density -1
+      mass 20.0
+    }
+  }
+}

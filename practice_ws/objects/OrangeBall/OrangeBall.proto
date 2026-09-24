@@ -1,0 +1,35 @@
+#VRML_SIM R2025a utf8
+# orange_ball migrated from Gazebo model_editor_models/orange_ball
+# (a plain sphere primitive in the original SDF, no mesh involved).
+
+PROTO OrangeBall [
+  field SFVec3f    translation 0 0 0
+  field SFRotation rotation    0 0 1 0
+  field SFString   name        "orange_ball"
+]
+{
+  Solid {
+    translation IS translation
+    rotation IS rotation
+    name IS name
+    children [
+      Shape {
+        appearance PBRAppearance {
+          baseColor 0.85 0.25 0.05
+          roughness 0.6
+          metalness 0
+        }
+        geometry Sphere {
+          radius 0.0325
+        }
+      }
+    ]
+    boundingObject Sphere {
+      radius 0.0325
+    }
+    physics Physics {
+      density -1
+      mass 0.030
+    }
+  }
+}

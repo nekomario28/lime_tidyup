@@ -32,7 +32,7 @@ export ONESTAGE_WORLD="${ONESTAGE_WORLD:-$HOME/practice_ws/worlds/sim_house.worl
 export ONESTAGE_SPAWN="${ONESTAGE_SPAWN-}"
 
 ONESTAGE_DIR="${ONESTAGE_DIR:-$HOME/OneStageROS}"
-MAP="${MAP:-/project/resource/map/sim_house_world.yaml}"
+MAP="${MAP:-$HOME/practice_ws/maps/sim_house_world.yaml}"
 SERVO_USE_SIM="${SERVO_USE_SIM:-false}"
 
 source /opt/ros/humble/setup.bash

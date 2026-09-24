@@ -5,7 +5,7 @@
 
 MODE="server"
 WORLD_FILE="sim_house.wbt"
-MAP_FILE="/project/resource/map/sim_house_world.yaml"
+MAP_FILE="$HOME/practice_ws/maps/sim_house_world.yaml"
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
