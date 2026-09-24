@@ -6,7 +6,7 @@ services:
       dockerfile: Dockerfile
       args:
         ROS_DISTRO: humble
-    network_mode: host
+    # network_mode: host
     privileged: true
     ipc: host
     ports: 
