@@ -29,6 +29,9 @@ WORKDIR /root
 RUN git clone https://github.com/yulat214/OneStageROS.git
 WORKDIR /root/OneStageROS
 RUN npm install
+RUN source /opt/ros/humble/setup.bash \
+ && npm ci \
+ && npx generate-ros-messages
 
 WORKDIR /root
 RUN git clone https://github.com/yulat214/sdf_building_editor.git
@@ -110,6 +113,11 @@ RUN git clone https://github.com/ldrobotSensorTeam/ldlidar_stl_ros2.git
 COPY ./project/resource/turtlebot3_lime_webots.patch /root/turtlebot3_ws/turtlebot3_lime/
 WORKDIR /root/turtlebot3_ws/turtlebot3_lime
 RUN git apply turtlebot3_lime_webots.patch && rm turtlebot3_lime_webots.patch
+
+RUN sed -i -E 's/^(\s*Frame Rate:\s*)[0-9]+/\110/' \
+      turtlebot3_lime_navigation2/rviz/navigation2.rviz \
+      turtlebot3_lime_moveit_config/config/moveit.rviz
+
 WORKDIR /root/turtlebot3_ws
 
 RUN source /opt/ros/${ROS_DISTRO}/setup.bash \
