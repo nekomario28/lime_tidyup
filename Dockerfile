@@ -99,6 +99,9 @@ RUN F=/opt/ros/${ROS_DISTRO}/local/lib/python3.10/dist-packages/rosbridge_librar
  && grep -q 'return list(standard_b64decode(msg))' "$F" \
  && sed -i 's/return list(standard_b64decode(msg))/return array.array("B", standard_b64decode(msg))/' "$F"
 
+RUN sed -i -E 's/^([[:space:]]*max_laser_range:[[:space:]]*)[0-9.]+/\13.4/' \
+    /opt/ros/humble/share/slam_toolbox/config/mapper_params_*.yaml
+
 RUN apt-get update && apt-get install -y --no-install-recommends \
  ros-humble-webots-ros2 \
  ros-humble-webots-ros2-driver \
@@ -121,6 +124,9 @@ RUN git apply turtlebot3_lime_webots.patch && rm turtlebot3_lime_webots.patch
 RUN sed -i -E 's/^(\s*Frame Rate:\s*)[0-9]+/\110/' \
       turtlebot3_lime_navigation2/rviz/navigation2.rviz \
       turtlebot3_lime_moveit_config/config/moveit.rviz
+
+RUN sed -i -E 's/^([[:space:]]*laser_max_range:[[:space:]]*)[0-9.]+/\13.4/' \
+    turtlebot3_lime_navigation2/param/turtlebot3*.yaml
 
 RUN sed -i 's/^\(\s*base_frame_id:\s*\)"base_footprint"/\1"base_link"/' \
       /root/turtlebot3_ws/turtlebot3_lime/turtlebot3_lime_navigation2/param/turtlebot3.yaml \
