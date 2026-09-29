@@ -1,0 +1,45 @@
+#VRML_SIM R2025a utf8
+# coke_can migrated from Gazebo model_editor_models/coke_can.
+# Collision approximated as a cylinder (matching the mesh's own bounding
+# box: ~67mm diameter, ~307mm tall) instead of the raw concave mesh that
+# the original SDF used directly as its collision geometry.
+
+PROTO CokeCan [
+  field SFVec3f    translation 0 0 0
+  field SFRotation rotation    0 0 1 0
+  field SFString   name        "coke_can"
+]
+{
+  Solid {
+    translation IS translation
+    rotation IS rotation
+    name IS name
+    children [
+      Shape {
+        appearance PBRAppearance {
+          baseColorMap ImageTexture {
+            url [ "./materials/textures/coke_can.png" ]
+          }
+          roughness 1
+          metalness 0
+        }
+        geometry Mesh {
+          url [ "./meshes/coke_can.dae" ]
+        }
+      }
+    ]
+    boundingObject Pose {
+      translation 0 0 0.1535
+      children [
+        Cylinder {
+          radius 0.0335
+          height 0.307
+        }
+      ]
+    }
+    physics Physics {
+      density -1
+      mass 0.030
+    }
+  }
+}

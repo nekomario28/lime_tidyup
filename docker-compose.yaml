@@ -6,10 +6,20 @@ services:
       dockerfile: Dockerfile
       args:
         ROS_DISTRO: humble
-    network_mode: host
+    # network_mode: host
+    privileged: true
     ipc: host
+    ports: 
+      - "3000:3000"
+      - "8000:8000"
+      - "9090:9090"
+      - "9091:9091"
+      - "8080:8080"
     environment:
       - DISPLAY=${DISPLAY}
+      - WAYLAND_DISPLAY=${WAYLAND_DISPLAY}
+      - XDG_RUNTIME_DIR=/tmp
+      - PULSE_SERVER=${PULSE_SERVER}
     volumes:
       - ./pytwb_ws:/root/pytwb_ws:rw
       - ./bin:/root/bin:rw
@@ -22,5 +32,4 @@ services:
       - type: bind
         source: '${XDG_RUNTIME_DIR}/wayland-0'
         target: /tmp/wayland-0
-    command: xterm -fa 'Hack' -fs 24 -display ${DISPLAY} -T 'cm main'
-
+    command: terminator

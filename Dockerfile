@@ -1,4 +1,5 @@
 FROM osrf/ros:humble-desktop-full
+ARG DEBIAN_FRONTEND=noninteractive
 SHELL ["/bin/bash", "-c"]
 
 # If you get a gpg error during docker build, uncomment the following three lines:
@@ -7,7 +8,7 @@ SHELL ["/bin/bash", "-c"]
 # RUN echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/ros-archive-keyring.gpg] http://packages.ros.org/ros2/ubuntu $(. /etc/os-release && echo $UBUNTU_CODENAME) main" | tee /etc/apt/sources.list.d/ros2.list > /dev/null
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
- git python3-pip vim eog xterm less wget
+ git python3-pip vim eog xterm less wget terminator
 
 RUN apt-get update && apt install -y python3-colcon-common-extensions
 
@@ -16,7 +17,33 @@ RUN pip3 install numpy==1.26.4
 RUN pip3 install pyquaternion matplotlib transforms3d simple-pid \
  numpy-quaternion pyrealsense2
 
-#RUN pip3 install -U numpy
+# Node.js のインストール
+RUN apt-get update && apt-get install -y nodejs npm && \
+    npm install n -g && \
+    n stable && \
+    apt purge -y nodejs npm && \
+    apt autoremove -y && \
+    hash -r
+
+WORKDIR /root
+RUN git clone https://github.com/yulat214/OneStageROS.git
+WORKDIR /root/OneStageROS
+RUN npm install
+RUN source /opt/ros/humble/setup.bash \
+ && npm ci \
+ && npx generate-ros-messages
+
+WORKDIR /root
+RUN git clone https://github.com/yulat214/sdf_building_editor.git
+WORKDIR /root/sdf_building_editor
+RUN pip install -r requirements.txt
+
+# --- Webots本体のインストール（cyberbotics公式リポジトリ） ---
+RUN mkdir -p /etc/apt/keyrings && \
+    wget -qO- https://cyberbotics.com/Cyberbotics.asc | gpg --dearmor -o /etc/apt/keyrings/cyberbotics.gpg && \
+    echo "deb [signed-by=/etc/apt/keyrings/cyberbotics.gpg] https://cyberbotics.com/debian/ binary-amd64/" \
+      > /etc/apt/sources.list.d/cyberbotics.list && \
+    apt-get update && apt-get install -y --no-install-recommends webots
 
 # Create Colcon workspace with external dependencies
 WORKDIR /
@@ -28,12 +55,6 @@ RUN vcs import < dependencies.repos
 # patch downloaded modules before build
 WORKDIR /project/lib_ws/src/pymoveit2
 COPY ./project/resource/pymoveit2_setup.py setup.py
-
-#WORKDIR /project/lib_ws/src/gazebo-pkgs/gazebo_grasp_plugin
-#COPY ./project/resource/grasp/CMakeLists.txt CMakeLists.txt
-#COPY ./project/resource/grasp/package.xml package.xml
-#WORKDIR /project/lib_ws/src/gazebo-pkgs/
-#RUN rm -r gazebo_test_tools gazebo_state_plugins gazebo_world_plugin_loader
 
 # Build the base Colcon workspace, installing dependencies first.
 WORKDIR /project/lib_ws
@@ -51,45 +72,79 @@ WORKDIR /root
 
 RUN echo "source /opt/ros/humble/setup.bash" >> .bashrc
 RUN echo "source /project/lib_ws/install/setup.bash" >> .bashrc
-RUN echo "source /usr/share/gazebo/setup.sh" >> .bashrc
 RUN echo "source ~/turtlebot3_ws/install/setup.bash" >> .bashrc
+RUN echo "source /root/webots_ws/install/setup.bash" >> .bashrc
 RUN echo "export ROS_LOCALHOST_ONLY=1" >> .bashrc
 RUN echo "export CYCLONEDDS_URI=/project/resource/cyclonedds.xml" >> .bashrc
-RUN echo "export GAZEBO_PLUGIN_PATH=$GAZEBO_PLUGIN_PATH:/project/lib_ws/build/IFRA_LinkAttacher:/opt/ros/humble/lib" >> .bashrc
 RUN echo "export RMW_IMPLEMENTATION=rmw_cyclonedds_cpp" >> .bashrc
-RUN echo 'export GAZEBO_MODEL_PATH=$GAZEBO_MODEL_PATH:/opt/ros/humble/share/turtlebot3_gazebo/models:/root/practice_ws/worlds' >> .bashrc
+RUN echo "export WEBOTS_HOME=/usr/local/webots" >> .bashrc
+RUN echo 'export PATH=$PATH:$WEBOTS_HOME' >> .bashrc
+RUN echo 'export USER=$(whoami)' >> .bashrc
 RUN echo 'PATH=$PATH:/root/bin' >> .bashrc
 
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
  ros-humble-rmw-cyclonedds-cpp \
- ros-humble-gazebo-* ros-humble-navigation2 \
+ ros-humble-navigation2 \
  ros-humble-nav2-bringup
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
  ros-humble-dynamixel-sdk ros-humble-ros2-control ros-humble-ros2-controllers ros-humble-gripper-controllers \
- ros-humble-moveit ros-humble-moveit-servo ros-humble-cartographer \ 
+ ros-humble-moveit ros-humble-moveit-servo ros-humble-cartographer \
  ros-humble-realsense2-description \
  ros-humble-cartographer-ros ros-humble-gripper-controllers \
- ros-humble-tf-transformations
+ ros-humble-tf-transformations ros-humble-rosbridge-suite
+
+RUN F=/opt/ros/${ROS_DISTRO}/local/lib/python3.10/dist-packages/rosbridge_library/internal/message_conversion.py \
+ && grep -q 'return list(standard_b64decode(msg))' "$F" \
+ && sed -i 's/return list(standard_b64decode(msg))/return array.array("B", standard_b64decode(msg))/' "$F"
+
+RUN sed -i -E 's/^([[:space:]]*max_laser_range:[[:space:]]*)[0-9.]+/\13.4/' \
+    /opt/ros/humble/share/slam_toolbox/config/mapper_params_*.yaml
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+ ros-humble-webots-ros2 \
+ ros-humble-webots-ros2-driver \
+ ros-humble-webots-ros2-control \
+ ros-humble-webots-ros2-importer
+RUN sed -i \
+    "s/return 'microsoft-standard' in uname().release\$/return 'microsoft-standard' in uname().release and shutil.which('wslpath') is not None/" \
+    /opt/ros/humble/local/lib/python3.10/dist-packages/webots_ros2_driver/utils.py
 
 RUN mkdir -p /root/turtlebot3_ws/src
-WORKDIR /root/turtlebot3_ws 
+WORKDIR /root/turtlebot3_ws
 RUN git clone -b humble-devel https://github.com/ROBOTIS-JAPAN-GIT/turtlebot3_lime.git
 RUN git clone https://github.com/ldrobotSensorTeam/ldlidar_stl_ros2.git
-RUN git clone -b foxy-devel https://github.com/pal-robotics/realsense_gazebo_plugin.git
+
+# --- turtlebot3_lime本体へのWebots対応パッチ ---
+COPY ./project/resource/turtlebot3_lime_webots.patch /root/turtlebot3_ws/turtlebot3_lime/
+WORKDIR /root/turtlebot3_ws/turtlebot3_lime
+RUN git apply turtlebot3_lime_webots.patch && rm turtlebot3_lime_webots.patch
+
+RUN sed -i -E 's/^(\s*Frame Rate:\s*)[0-9]+/\110/' \
+      turtlebot3_lime_navigation2/rviz/navigation2.rviz \
+      turtlebot3_lime_moveit_config/config/moveit.rviz
+
+RUN sed -i -E 's/^([[:space:]]*laser_max_range:[[:space:]]*)[0-9.]+/\13.4/' \
+    turtlebot3_lime_navigation2/param/turtlebot3*.yaml
+
+RUN sed -i 's/^\(\s*base_frame_id:\s*\)"base_footprint"/\1"base_link"/' \
+      /root/turtlebot3_ws/turtlebot3_lime/turtlebot3_lime_navigation2/param/turtlebot3.yaml \
+ && grep -q 'base_frame_id: "base_link"' \
+      /root/turtlebot3_ws/turtlebot3_lime/turtlebot3_lime_navigation2/param/turtlebot3.yaml
+
+WORKDIR /root/turtlebot3_ws
+
 RUN source /opt/ros/${ROS_DISTRO}/setup.bash \
 && colcon build --symlink-install
-WORKDIR /root/turtlebot3_ws/install 
-COPY ./project/resource/turtlebot3_lime.urdf.xacro turtlebot3_lime_description/share/turtlebot3_lime_description/urdf
-# COPY ./project/resource/gazebo2.launch.py turtlebot3_lime_bringup/share/turtlebot3_lime_bringup/launch
-# COPY ./project/resource/moveit_gazebo2.launch.py turtlebot3_lime_moveit_config/share/turtlebot3_lime_moveit_config/launch
-COPY ./project/resource/sim_house.world turtlebot3_lime_bringup/share/turtlebot3_lime_bringup/worlds
 
-WORKDIR /root/.gazebo
-RUN mkdir models
-
-WORKDIR /root/.gazebo/models
-COPY ./project/resource/model_editor_models  .
+# --- webots_ws のビルド ---
+RUN mkdir -p /root/webots_ws/src
+WORKDIR /root/webots_ws/src
+RUN git clone https://github.com/yulat214/turtlebot3_lime_webots
+WORKDIR /root/webots_ws
+RUN source /opt/ros/${ROS_DISTRO}/setup.bash \
+ && rosdep install --from-paths src --ignore-src --rosdistro $ROS_DISTRO -y \
+ && colcon build --symlink-install
 
 WORKDIR /root

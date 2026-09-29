@@ -1,0 +1,46 @@
+#VRML_SIM R2025a utf8
+# Coke bottle migrated from Gazebo model_editor_models/Coke. This is the
+# object actually targeted by cm1's LookForCoke / CheckCoke behaviors
+# (behavior/simvison.py, behavior/migration.py, trees/bt_search.xml).
+# Collision approximated as a cylinder matching the mesh bounding box
+# (~60mm diameter, ~145mm tall) instead of the raw mesh.
+
+PROTO Coke [
+  field SFVec3f    translation 0 0 0
+  field SFRotation rotation    0 0 1 0
+  field SFString   name        "Coke"
+]
+{
+  Solid {
+    translation IS translation
+    rotation IS rotation
+    name IS name
+    children [
+      Shape {
+        appearance PBRAppearance {
+          baseColorMap ImageTexture {
+            url [ "./materials/coke.png" ]
+          }
+          roughness 1
+          metalness 0
+        }
+        geometry Mesh {
+          url [ "./meshes/coke.obj" ]
+        }
+      }
+    ]
+    boundingObject Pose {
+      translation 0 0 0.0725
+      children [
+        Cylinder {
+          radius 0.030
+          height 0.145
+        }
+      ]
+    }
+    physics Physics {
+      density -1
+      mass 0.030
+    }
+  }
+}

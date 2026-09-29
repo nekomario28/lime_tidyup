@@ -109,7 +109,7 @@ class CognitiveNetwork(SubNet):
     def measure_distance(self, callback, target):
         bridge = self.get_value('cv_bridge')
         def stub(data):
-            depth_image = bridge.imgmsg_to_cv2(data)
+            depth_image = self.normalize_depth_mm(bridge.imgmsg_to_cv2(data))
             mid_line = depth_image[len(depth_image)//2]
             return callback(min(mid_line)/320)
             
@@ -120,11 +120,10 @@ class CognitiveNetwork(SubNet):
     def measure_center(self, target='link1', assumed=0.28, log=None):
         data = self.run_actor('depth')
         cv_bridge = self.get_value('cv_bridge')
-        depth_image = cv_bridge.imgmsg_to_cv2(data)
-        index = len(depth_image) - 220
-        det_line = depth_image[index]
-        index = det_line.argmin()
-        distance = det_line[index] / 1000
+        depth_image = self.normalize_depth_mm(cv_bridge.imgmsg_to_cv2(data))
+        row = len(depth_image) - 220
+        index, value = self.argmin_valid_band(depth_image, row)
+        distance = value / 1000
         actual_distance = distance
         center = self.run_actor('pic_find')
         if not center: 
@@ -156,16 +155,46 @@ class CognitiveNetwork(SubNet):
     def measure_center2(self, assumed=0.25, log=None):
         data = self.run_actor('depth')
         cv_bridge = self.get_value('cv_bridge')
-        depth_image = cv_bridge.imgmsg_to_cv2(data)
-        zp = len(depth_image) - 200
+        depth_image = self.normalize_depth_mm(cv_bridge.imgmsg_to_cv2(data))
+        # Used to be a row hardcoded to a fixed offset from the bottom of the
+        # frame, with no input from where the object actually is. That was
+        # tuned against Gazebo's specific arm/camera geometry at "lowered for
+        # picking" pose; under Webots' geometry the object can end up outside
+        # that row's band entirely (still visible, just not where this
+        # function was looking), so follow pic_find's row like measure_center
+        # already does for its column, falling back to the old fixed row if
+        # nothing was found there.
+        center = self.run_actor('pic_find')
+        zp = center[1] if center else len(depth_image) - 200
         det_line = depth_image[zp]
-        d_index = det_line.argmin()
-        distance = det_line[d_index] / 1000
+        _, value = self.argmin_valid_band(depth_image, zp)
+        distance = value / 1000
         mes_distance = distance
+
+        # This width scan used to just take whatever was closest in the row,
+        # with no regard for what it actually was. Late in the pick sequence
+        # the arm swings down directly in front of the base-mounted camera,
+        # so "closest thing in this row" is very often the arm itself rather
+        # than the can, aiming the final angle correction at empty air.
+        # Restrict the scan to pixels that are actually can-colored.
+        color_row_mask = None
+        try:
+            color_data = self.run_actor('pic')
+            cv_bridge = self.get_value('cv_bridge')
+            cv_image = cv_bridge.imgmsg_to_cv2(color_data, "bgr8")
+            hsv_row = cv2.cvtColor(cv_image[zp:zp + 1], cv2.COLOR_BGR2HSV)
+            color_row_mask = cv2.inRange(
+                hsv_row, np.array([150, 70, 0]), np.array([180, 255, 255])
+            )[0] > 0
+        except Exception:
+            color_row_mask = None
+
         min_index = 600
         max_index = 0
         for i, v in enumerate(det_line):
             if v > 300: continue
+            if color_row_mask is not None and i < len(color_row_mask) and not color_row_mask[i]:
+                continue
             if i < min_index: min_index = i
             if i > max_index: max_index = i
         index = int((min_index + max_index) / 2)
@@ -193,10 +222,11 @@ class CognitiveNetwork(SubNet):
     def center_angle(self, assumed=0.25):
         data = self.run_actor('depth')
         cv_bridge = self.get_value('cv_bridge')
-        depth_image = cv_bridge.imgmsg_to_cv2(data)
-        det_line = depth_image[-220]
-        index = det_line.argmin() + 19
-        distance = det_line[index] / 640
+        depth_image = self.normalize_depth_mm(cv_bridge.imgmsg_to_cv2(data))
+        row = depth_image.shape[0] - 220
+        index, value = self.argmin_valid_band(depth_image, row)
+        index += 19
+        distance = value / 640
         if distance < 0.1 and assumed > 0: distance = assumed
         x, y = self.pix_to_coordinate(index, distance, depth_image)
         angle = atan2(y, x)
@@ -206,7 +236,51 @@ class CognitiveNetwork(SubNet):
         intrinsics = self.get_value('intrinsics')
         p = rs.rs2_deproject_pixel_to_point(intrinsics,[x,y], distance)
         return p[2],-p[0]
-    
+
+    # Real hardware (and Gazebo's realsense plugin) publish depth as 16UC1
+    # millimeters with 0 meaning "no return". Webots' RangeFinder instead
+    # publishes 32FC1 meters with inf meaning "no return". All the distance
+    # math below (the /1000 and /640 divisions, the >300 and ==0 checks)
+    # was written against the old mm/0-invalid convention, so normalize any
+    # depth image to that convention right after reading it from cv_bridge.
+    def normalize_depth_mm(self, depth_image):
+        return np.nan_to_num(depth_image, nan=0.0, posinf=0.0, neginf=0.0) * 1000
+
+    # 0 means "no return" in this mm convention, so a naive argmin() would pick
+    # an invalid pixel as the "closest" point whenever one is present in the
+    # scan line. Webots' simulated depth has more of these (e.g. open space
+    # beyond max range) than the scenes this code was originally tuned against,
+    # so ignore them when looking for the closest real surface. Searches a
+    # band of rows around `row` instead of a single fixed row, so a momentary
+    # miss on that exact row (e.g. mid-motion, or a pixel that lands just off
+    # the object's edge) doesn't throw away a perfectly good reading one row
+    # above/below it. Returns (column_index, depth_value_mm); value is 0 if
+    # nothing valid was found.
+    def argmin_valid_band(self, depth_image, row, band=5):
+        r0 = max(0, row - band)
+        r1 = min(depth_image.shape[0], row + band + 1)
+        region = depth_image[r0:r1]
+        masked = np.where(region > 0, region, np.inf)
+        local_row, col = np.unravel_index(masked.argmin(), masked.shape)
+        value = region[local_row, col]
+        if np.isinf(value):
+            value = 0.0
+        return int(col), float(value)
+
+    # Closest valid (non-zero) depth in a small window around (cy, cx),
+    # instead of trusting a single pixel that a slightly-off color/depth
+    # alignment could easily miss the object with.
+    def closest_valid_depth(self, depth_image, cy, cx, radius=5):
+        y0 = max(0, cy - radius)
+        y1 = min(depth_image.shape[0], cy + radius + 1)
+        x0 = max(0, cx - radius)
+        x1 = min(depth_image.shape[1], cx + radius + 1)
+        window = depth_image[y0:y1, x0:x1]
+        valid = window[window > 0]
+        if valid.size == 0:
+            return 0.0
+        return float(valid.min())
+
     def pic_to_depth(self, yp, zp):
         loc_z = zp / self.pic_shape[1] * self.depth_shape[1]
         loc_y = yp / self.pic_shape[0] * self.depth_shape[0]
@@ -221,12 +295,12 @@ class CognitiveNetwork(SubNet):
         if not center: return None
         data = self.run_actor('depth')
         cv_bridge = self.get_value('cv_bridge')
-        depth_image = cv_bridge.imgmsg_to_cv2(data)
+        depth_image = self.normalize_depth_mm(cv_bridge.imgmsg_to_cv2(data))
         yp = center[0] # by pic cell
         zp = center[1] # by pic cell
         self.depth_shape = depth_image.shape
         rel_yp, rel_zp = self.adjust(yp, zp, self.depth_shape)
-        distance = depth_image[rel_zp][rel_yp] / 1000
+        distance = self.closest_valid_depth(depth_image, rel_zp, rel_yp) / 1000
         if isinf(distance): return None
         if distance == 0:
             print('find_object zero distance')
@@ -249,7 +323,7 @@ class CognitiveNetwork(SubNet):
         if not center: return None
         data = self.run_actor('depth')
         cv_bridge = self.get_value('cv_bridge')
-        depth_image = cv_bridge.imgmsg_to_cv2(data)
+        depth_image = self.normalize_depth_mm(cv_bridge.imgmsg_to_cv2(data))
         yp = center[0] # by pic cell
         zp = center[1] # by pic cell
         self.depth_shape = depth_image.shape
@@ -320,7 +394,7 @@ class CognitiveNetwork(SubNet):
         if not center: return None
         data = self.run_actor('depth')
         cv_bridge = self.get_value('cv_bridge')
-        depth_image = cv_bridge.imgmsg_to_cv2(data)
+        depth_image = self.normalize_depth_mm(cv_bridge.imgmsg_to_cv2(data))
         yp = center[0] # by pic cell
         zp = center[1] # by pic cell
         self.depth_shape = depth_image.shape
@@ -329,7 +403,7 @@ class CognitiveNetwork(SubNet):
 #        print(f'find_object yp:{yp}, zp:{zp}')
 
         rel_yp, rel_zp = self.adjust(yp, zp, self.depth_shape)
-        distance = depth_image[rel_zp][rel_yp] / 1000
+        distance = self.closest_valid_depth(depth_image, rel_zp, rel_yp) / 1000
         if isinf(distance): return None
         radius = 20
         color = (0, 255, 0)

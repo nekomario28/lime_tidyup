@@ -19,6 +19,19 @@ def wait_until_executed(arm):
         sleep(0.5)
 
 class ManipulatorNetwork(SubNet):
+    # Lift the end effector straight up from wherever it currently is
+    # (relative joint adjustment, not an absolute target), before handing
+    # off to home(). home() plans a joint-space move from the current pose
+    # with no idea an object is being held, so on a short/close pick it can
+    # dip through a low path and drag the object along the ground; lifting
+    # clear first avoids that regardless of where the pick happened.
+    @actor
+    def pick_up(self):
+        joint = [0.0, radians(34), radians(87), 0.0, radians(-78), 0.0]
+        self.run_actor('move_joint', *joint)
+        return True
+
+
     # set to home position
     @actor
     def home(self):
@@ -91,36 +104,14 @@ class ManipulatorNetwork(SubNet):
     # open gripper
     @actor
     def open(self):
-        self.run_actor('open_gripper')
-        try: self.run_actor("detach")
-        except TypeError: pass
-        
-        self.run_actor('sleep', 2)
-        return True
-
-    # close gripper
-    @actor
-    def close(self):
-        self.run_actor('close_gripper')
-        self.run_actor("attach")
-        return True
-    
-    @actor
-    def full_close(self):
-        gripper = self.get_value('gripper')
-        gripper.move_to_position(-0.01)
-        self.run_actor('sleep', 2)
-        return True
-
-    @actor
-    def open_gripper(self):
         gripper = self.get_value('gripper')
         gripper.open()
         wait_until_executed(gripper)
         return True
 
+    # close gripper
     @actor
-    def close_gripper(self):
+    def close(self):
         gripper = self.get_value('gripper')
         gripper.close()
         wait_until_executed(gripper)
@@ -227,8 +218,8 @@ class ManipulatorNetwork(SubNet):
         self.run_actor('sleep', 3.0)
         return True
         '''
-        joint = [0.0, 1.75, 1.4, 0.0, -1.6, 0.0]
-#        joint = [0.0, radians(89), radians(84), 0.0, radians(-82), 0.0]
+        # joint = [0.0, 1.75, 1.4, 0.0, -1.6, 0.0]
+        joint = [0.0, radians(97), radians(83), 0.0, radians(-83), 0.0]
         joint[0] = dir
         self.run_actor('move_joint', *joint)
         return True
@@ -281,10 +272,3 @@ class ManipulatorNetwork(SubNet):
         joint = [radians(j1), radians(j2), radians(j3), radians(j4), radians(j5), radians(j6)]
         self.run_actor('move_joint', *joint)
         return True
-    
-# register_pose {register_name} j1 j2 j3 j4 j5 j6
-# で動かせるactor登録actorがあったら良いのになあ
-# 尚、登録機はactorでなくてもよい。。。けど、まあactorが良いか。
-# 名前被りは"名前被りだ！"って言えるように、全部の関数名を正規表現とかでリストにしたい。つまるところアームだけで良い。
-# behaviorにはならんが。
-# そういえば、勝手にmigrationしてくれるやつを作りたい。
