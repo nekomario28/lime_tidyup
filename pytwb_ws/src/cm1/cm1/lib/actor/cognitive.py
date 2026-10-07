@@ -15,10 +15,13 @@ if detector_dir not in sys.path:
 # import circle_center_detector, color_center_detector, marker_detector
 import importlib
 
+# yolo_model_path = '/root/yolo_ws/models/yolo11n.pt'
+
 class CognitiveNetwork(SubNet):
     def __init__(self, name):
         super().__init__(name)
         self.detector = None
+        # self.yolo = None
 
     @actor
     def carib(self):
@@ -443,6 +446,29 @@ class CognitiveNetwork(SubNet):
             return -1, -1
         else:
             return int(x / w), int(y / w)  
+
+    # recognize objects in the current RGB image by YOLO and print the list
+    # @actor
+    # def yolo_objects(self, conf=0.5):
+    #     if self.yolo is None:
+    #         from ultralytics import YOLO
+    #         self.yolo = YOLO(yolo_model_path)
+    #     cv_image = self.run_actor('pic_receiver')
+    #     if cv_image is None: return None
+    #     result = self.yolo(cv_image, conf=conf, verbose=False)[0]
+    #     objects = []
+    #     for cls, score, box in zip(result.boxes.cls, result.boxes.conf, result.boxes.xyxy):
+    #         x1, y1, x2, y2 = [int(v) for v in box]
+    #         objects.append({
+    #             'name': result.names[int(cls)],
+    #             'conf': float(score),
+    #             'center': ((x1 + x2) // 2, (y1 + y2) // 2),
+    #             'box': (x1, y1, x2, y2),
+    #         })
+    #     print(f'yolo_objects: {[o["name"] for o in objects]}')
+    #     for o in objects:
+    #         print(f'  {o["name"]:<15} conf:{o["conf"]:.2f} center:{o["center"]}')
+    #     return objects
 
     @actor
     def read_marker(self):
