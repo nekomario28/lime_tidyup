@@ -1,0 +1,37 @@
+<?xml version="1.0"?>
+<!-- OrangeBall.proto（Webots 用）と同じ球。寸法・質量・色を変えるときは両方そろえること。 -->
+<sdf version="1.7">
+  <model name="orange_ball">
+    <link name="ball">
+      <inertial>
+        <mass>0.03</mass>
+        <inertia>
+          <ixx>1.268e-05</ixx>
+          <iyy>1.268e-05</iyy>
+          <izz>1.268e-05</izz>
+          <ixy>0</ixy>
+          <ixz>0</ixz>
+          <iyz>0</iyz>
+        </inertia>
+      </inertial>
+      <visual name="visual">
+        <geometry>
+          <sphere>
+            <radius>0.0325</radius>
+          </sphere>
+        </geometry>
+        <material>
+          <ambient>0.85 0.25 0.05 1</ambient>
+          <diffuse>0.85 0.25 0.05 1</diffuse>
+        </material>
+      </visual>
+      <collision name="collision">
+        <geometry>
+          <sphere>
+            <radius>0.0325</radius>
+          </sphere>
+        </geometry>
+      </collision>
+    </link>
+  </model>
+</sdf>
