@@ -1,0 +1,25 @@
+#!/bin/bash
+#   OneStageROS + fake bringup (run_turtle_base 等) が起動済みの環境に追加で起動する
+
+# ----- コマンドライン引数のパース -----
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    -h|--help)
+      echo "Usage: $0"
+      exit 0
+      ;;
+    *)
+      echo "Unknown option: $1"
+      exit 1
+      ;;
+  esac
+done
+
+source /opt/ros/humble/setup.bash
+source ~/turtlebot3_ws/install/setup.bash
+
+echo "=== run_moveit ==="
+echo
+
+# MoveIt (move_group + RViz)  wall-clock
+ros2 launch turtlebot3_lime_moveit_config moveit_core.launch.py

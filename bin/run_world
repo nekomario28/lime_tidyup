@@ -1,0 +1,39 @@
+#!/bin/bash
+#   ONESTAGE_WORLD  読み込む .world/.sdf          (既定: ~/practice_ws/worlds/turtlebot_world.sdf / $HOME 配下必須)
+#   ONESTAGE_SPAWN  "x y yaw" ロボット初期姿勢    (既定: 空 → SDF の spawn/robot マーカー、無ければ原点)
+
+# ----- コマンドライン引数のパース -----
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --world)
+      ONESTAGE_WORLD="$2"
+      shift 2
+      ;;
+    -h|--help)
+      echo "Usage: $0 [--world WORLD_FILE]"
+      exit 0
+      ;;
+    *)
+      echo "Unknown option: $1"
+      exit 1
+      ;;
+  esac
+done
+
+# 引数が指定されなかった場合、既存の環境変数または既定値を使用
+export ONESTAGE_WORLD="${ONESTAGE_WORLD:-$HOME/practice_ws/worlds/turtlebot_world.sdf}"
+export ONESTAGE_SPAWN="${ONESTAGE_SPAWN-}"
+
+source ~/turtlebot3_ws/install/setup.bash
+
+echo "=== run_world ==="
+echo "  ONESTAGE_WORLD = $ONESTAGE_WORLD"
+echo "  ONESTAGE_SPAWN = '${ONESTAGE_SPAWN:-(none)}'"
+echo
+
+ros2 launch turtlebot3_lime_bringup fake.launch.py start_rviz:=false &
+LAUNCH_PID=$!
+
+trap 'kill -INT $LAUNCH_PID 2>/dev/null; wait $LAUNCH_PID' EXIT
+
+cd ~/OneStageROS && npm run start

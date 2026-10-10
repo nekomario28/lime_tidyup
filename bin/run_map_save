@@ -1,2 +1,44 @@
+#!/bin/bash
+#   MAP_PATH  保存先のパス+ファイル名 (拡張子なし)  (必須: --path で指定)
+#             例: --path ~/practice_ws/maps/my_map → my_map.yaml / my_map.pgm を出力
+#
+#   run_mapping 実行中に別端末で使用する
+
+# ----- コマンドライン引数のパース -----
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --path)
+      MAP_PATH="$2"
+      shift 2
+      ;;
+    -h|--help)
+      echo "Usage: $0 --path SAVE_PATH"
+      exit 0
+      ;;
+    *)
+      echo "Unknown option: $1"
+      exit 1
+      ;;
+  esac
+done
+
+if [[ -z "$MAP_PATH" ]]; then
+  echo "Error: --path is required"
+  echo "Usage: $0 --path SAVE_PATH"
+  exit 1
+fi
+
+# map_saver_cli が拡張子を付けるので、.yaml/.pgm 付きで指定された場合は外す
+MAP_PATH="${MAP_PATH%.yaml}"
+MAP_PATH="${MAP_PATH%.pgm}"
+
+mkdir -p "$(dirname "$MAP_PATH")"
+
+source /opt/ros/humble/setup.bash
 source ~/turtlebot3_ws/install/setup.bash
-ros2 run nav2_map_server map_saver_cli -f /root/practice_ws/maps/$1
+
+echo "=== run_map_save ==="
+echo "  MAP_PATH = $MAP_PATH"
+echo
+
+ros2 run nav2_map_server map_saver_cli -f "$MAP_PATH"
