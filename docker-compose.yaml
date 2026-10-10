@@ -11,15 +11,14 @@ services:
     ipc: host
     ports: 
       - "127.0.0.1:3000:3000"
-      - "127.0.0.1:8000:8000"
-      - "127.0.0.1:9090:9090"
-      - "127.0.0.1:9091:9091"
       - "127.0.0.1:8080:8080"
     environment:
       - DISPLAY=${DISPLAY}
       - WAYLAND_DISPLAY=${WAYLAND_DISPLAY}
       - XDG_RUNTIME_DIR=/tmp
       - PULSE_SERVER=${PULSE_SERVER}
+      - ONESTAGE_EXPOSE=true
+      - BUILDING_EDITOR_EXPOSE=true
     volumes:
       - ./pytwb_ws:/root/pytwb_ws:rw
       - ./bin:/root/bin:rw
