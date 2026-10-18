@@ -3,6 +3,7 @@
 <sdf version="1.7">
   <model name="orange_ball">
     <link name="ball">
+      <pose>0 0 0.0325 0 0 0</pose>
       <inertial>
         <mass>0.03</mass>
         <inertia>
