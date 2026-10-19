@@ -43,14 +43,17 @@ FACE_NORMALS = {
 }
 
 #: Standard six-colour assignment, against which hypotheses are scored.
+#: This is the same face-to-colour convention the generated pose cube uses
+#: (:mod:`barcode_detector.rubik_pose_cube`), and a test pins the two together:
+#: if they disagree, every identity hypothesis scores as a mismatch.
 #: A caller may pass any label set, provided opposite faces differ.
 STANDARD_FACE_COLORS = {
     '+x': 'red',
     '-x': 'orange',
-    '+y': 'white',
-    '-y': 'yellow',
-    '+z': 'blue',
-    '-z': 'green',
+    '+y': 'blue',
+    '-y': 'green',
+    '+z': 'white',
+    '-z': 'yellow',
 }
 
 
@@ -319,6 +322,10 @@ def select_by_face_colors(hypotheses, observed_colors):
         missing = [slot for slot in slots if slot not in observed]
         if missing:
             raise CubePose3DError(f'missing observed face colours: {missing}')
+    if any(observed[slot] is None for slot in slots):
+        # An unlabelled face is missing evidence, not a mismatch: scoring it
+        # as a wrong colour would let a partial observation win a hypothesis.
+        return None
 
     scores = []
     for hypothesis in hypotheses:

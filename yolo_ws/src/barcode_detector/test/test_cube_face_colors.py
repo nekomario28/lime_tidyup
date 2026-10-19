@@ -83,8 +83,8 @@ VISIBLE_SLOTS = visible_face_names(
 )
 FACE_TO_LABEL = {
     '+x': 'red', '-x': 'orange',
-    '+y': 'white', '-y': 'yellow',
-    '+z': 'blue', '-z': 'green',
+    '+y': 'blue', '-y': 'green',
+    '+z': 'white', '-z': 'yellow',
 }
 PAINTED = {
     slot: REFERENCE_RGB[FACE_TO_LABEL[slot]] for slot in VISIBLE_SLOTS
@@ -214,9 +214,8 @@ class FaceObservationTest(unittest.TestCase):
             VISIBLE_SLOTS,
             side_length_m=SIDE_M,
         )
-        self.assertEqual(observed['+x'], 'red')
-        self.assertEqual(observed['-y'], 'yellow')
-        self.assertEqual(observed['-z'], 'green')
+        for slot in VISIBLE_SLOTS:
+            self.assertEqual(observed[slot], FACE_TO_LABEL[slot])
         for slot in VISIBLE_SLOTS:
             self.assertEqual(evidence[slot]['status'], 'observed')
             self.assertEqual(evidence[slot]['sample_count'], 9)
@@ -258,7 +257,7 @@ class FaceObservationTest(unittest.TestCase):
             VISIBLE_SLOTS,
             side_length_m=SIDE_M,
         )
-        self.assertEqual(observed['+x'], 'red')
+        self.assertEqual(observed['+x'], FACE_TO_LABEL['+x'])
 
     def test_faces_outside_the_image_abstain(self):
         image = np.zeros((8, 8, 3), dtype=np.uint8)

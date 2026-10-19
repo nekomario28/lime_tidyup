@@ -130,6 +130,11 @@ class ColourSelectionTest(unittest.TestCase):
         with self.assertRaises(CubePose3DError):
             select_by_face_colors(self.hypotheses, observed)
 
+    def test_an_unlabelled_face_selects_nothing(self):
+        observed = dict(self.hypotheses[0].color_assignment())
+        observed[self.hypotheses[0].visible_slots[0]] = None
+        self.assertIsNone(select_by_face_colors(self.hypotheses, observed))
+
     def test_unmatched_colours_select_nothing(self):
         slots = self.hypotheses[0].visible_slots
         observed = {slot: 'unknown' for slot in slots}
