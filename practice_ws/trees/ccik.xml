@@ -1,0 +1,33 @@
+<root>
+    <BehaviorTree ID="cube_ik_pose">
+        <!--
+            Minimal tree that aims the arm at the detected cube with an explicit
+            orientation. Run it with ./bin/ccc2 so the kinematics override is in
+            place (position_only_ik=false); with the upstream default the angles
+            below are silently ignored.
+
+            ArmToCube attributes:
+              standoff            metres above the cube, along base_link Z
+              roll/pitch/yaw      degrees, the orientation IK should reach
+              minimum_confidence  detector confidence floor (default 0.30)
+            The node only acts on a pose whose colour semantics resolved, so a
+            symmetry-equivalent cube is never aimed at.
+        -->
+        <Sequence name="main">
+            <SetDestinationByName name="set_init" destination="C"/>
+            <SearchCube name="search_cube" threshold="[0.30]"/>
+            <TakeAim
+                name="take_aim"
+                threshold="[0.30]"
+                turn_speed="[0.15]"
+                center_tolerance="[12.0]"/>
+            <ArmToCube
+                name="arm_to_cube"
+                standoff="0.12"
+                roll="180.0"
+                pitch="0.0"
+                yaw="0.0"
+                minimum_confidence="0.30"/>
+        </Sequence>
+    </BehaviorTree>
+</root>

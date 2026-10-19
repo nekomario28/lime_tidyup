@@ -102,3 +102,24 @@ class Ad0(ActorBT):
 class ArmAngle(ActorBT):
     def __init__(self, name, node, j1, j2, j3, j4, j5, j6):
         super().__init__(name, "arm_angle", j1, j2, j3, j4, j5, j6)
+
+
+@behavior
+class ArmToCube(ActorBT):
+    desc = "aim the arm at the detected cube with an explicit orientation"
+
+    def __init__(self, name, node, standoff=0.12, roll=180.0, pitch=0.0,
+                 yaw=0.0, minimum_confidence=0.30):
+        super().__init__(
+            name,
+            ((
+                "arm_to_cube",
+                (
+                    float(standoff),
+                    float(roll),
+                    float(pitch),
+                    float(yaw),
+                    float(minimum_confidence),
+                ),
+            ),),
+        )

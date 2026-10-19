@@ -1,4 +1,6 @@
 import array
+import json
+import math
 import operator
 from math import radians, atan2, degrees, pi
 import numpy as np
@@ -13,6 +15,12 @@ from pymoveit2 import MoveIt2State
 
 adjust_plus = 1.1  
 adjust_minus = 1.25
+
+def rclpy_time_now():
+    """Latest available transform time (no clock sync needed in sim)."""
+    from rclpy.time import Time
+    return Time()
+
 
 def wait_until_executed(arm):
     while(arm.query_state() != MoveIt2State.IDLE):
@@ -83,6 +91,98 @@ class ManipulatorNetwork(SubNet):
     def adjust_joint_radian(self, *args):
         value = self.get_value('joint_stat')
         return self.move_joint(*list(map(operator.add, value, *args)))
+
+    @actor
+    def arm_to_cube(
+        self,
+        standoff_m=0.12,
+        roll_deg=180.0,
+        pitch_deg=0.0,
+        yaw_deg=0.0,
+        minimum_confidence=0.30,
+        require_color_fixed=True,
+    ):
+        """Aim the arm at the detected cube, with an explicit orientation.
+
+        The target is the cube position lifted by ``standoff_m`` along
+        base_link Z, aimed with (roll, pitch, yaw) in degrees. The cube pose is
+        taken from ``/cube_pose_result`` and only used when the colour semantics
+        are resolved, because that is what fixes which physical face is which; an
+        unresolved pose would aim at a symmetry-equivalent cube.
+
+        Orientation is only honoured when the IK solver weights rotation, i.e.
+        when ``position_only_ik`` is false. ``bin/ccc2`` sets that before MoveIt
+        starts; with the upstream default the angles here would be ignored.
+        """
+        try:
+            msg = self.run_actor('cube_pose_result')
+            data = json.loads(msg.data)
+        except (AttributeError, TypeError, json.JSONDecodeError) as error:
+            print(f'arm_to_cube: no cube result: {error}')
+            return False
+
+        detection = None
+        confidence = 0.0
+        for candidate in data.get('detections', []):
+            value = float(candidate.get('confidence', 0.0))
+            if value > confidence:
+                detection, confidence = candidate, value
+        if detection is None or confidence < float(minimum_confidence):
+            print(f'arm_to_cube: no cube above the confidence floor '
+                  f'({confidence:.2f} < {float(minimum_confidence):.2f})')
+            return False
+
+        pose = detection.get('pose_3d') or {}
+        position = pose.get('position_m')
+        if not position or len(position) != 3:
+            print('arm_to_cube: detection carries no pose_3d')
+            return False
+        if require_color_fixed and (
+                pose.get('color_fixed_semantics_resolved') is not True):
+            print('arm_to_cube: colour semantics unresolved; not aiming')
+            return False
+
+        frame_id = pose.get('frame_id') or 'camera_color_optical_frame'
+        tf_buffer = self.get_value('tf_buffer')
+        tf = None
+        for _ in range(25):
+            if tf_buffer is not None and tf_buffer.can_transform(
+                    'base_link', frame_id, rclpy_time_now()):
+                tf = tf_buffer.lookup_transform(
+                    'base_link', frame_id, rclpy_time_now())
+                break
+            sleep(0.2)
+        if tf is None:
+            print(f'arm_to_cube: no transform {frame_id} -> base_link')
+            return False
+
+        rotation = quaternion.as_rotation_matrix(np.quaternion(
+            tf.transform.rotation.w, tf.transform.rotation.x,
+            tf.transform.rotation.y, tf.transform.rotation.z))
+        point_camera = np.array([float(value) for value in position])
+        translation = np.array([
+            tf.transform.translation.x,
+            tf.transform.translation.y,
+            tf.transform.translation.z,
+        ])
+        point_base = rotation @ point_camera + translation
+        target = (
+            float(point_base[0]),
+            float(point_base[1]),
+            float(point_base[2]) + float(standoff_m),
+        )
+        angle = [
+            radians(float(roll_deg)),
+            radians(float(pitch_deg)),
+            radians(float(yaw_deg)),
+        ]
+        print(f'arm_to_cube: cube in base_link='
+              f'({point_base[0]:.3f}, {point_base[1]:.3f}, {point_base[2]:.3f})'
+              f' target=({target[0]:.3f}, {target[1]:.3f}, {target[2]:.3f})'
+              f' rpy_deg=({float(roll_deg):.0f}, {float(pitch_deg):.0f},'
+              f' {float(yaw_deg):.0f})')
+        self.run_actor('arm_pose', target, angle)
+        return True
 
     def move_position(self, position, orientation):
         position = array.array('d', position)
