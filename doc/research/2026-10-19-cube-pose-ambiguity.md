@@ -86,6 +86,24 @@ Two consequences follow directly from the 0.0 px residual:
 - 49 unittest cases cover the three modules and the assembly, including a guard
   that the vertex sign order matches the PnP contract's vertex order.
 
+## Runtime check (Gazebo, 57 mm cube, real tracked weights)
+
+Running the wired node in the cube8 sim (`CUBE_EVIDENCE_GATE=1` equivalent,
+cube at 0.45 m) produces the expected fail-closed chain rather than a silent
+no-op:
+
+- detection: `3-face-cube`, confidence 0.850, **7** keypoints
+- `pose_3d_debug`: `rejected` / `exactly 8 ordered keypoints are required`
+- `pose_evidence.visibility`: `skipped`, `keypoint_count: 7`
+- `pose_evidence.color`: `unavailable` / `no accepted pose`
+
+So the evidence stages are reachable and report why they cannot run. The
+remaining blocker is the model, not the wiring: the shipped `best.pt` emits 7
+view-local keypoints, while every stage here (and the PnP contract) needs the
+eight ordered vertices. Until an eight-keypoint checkpoint replaces it, the
+three-face ambiguity cannot be resolved in the running system — which is why the
+unit tests exercise the eight-point path with synthetic detections.
+
 ## What this does not claim
 
 - No colour classifier accuracy, no real lighting/material measurement; the
