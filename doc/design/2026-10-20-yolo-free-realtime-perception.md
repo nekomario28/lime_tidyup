@@ -139,8 +139,24 @@ confidence は幾何品質のみとし、「色解決済みか」は `pose_3d` �
 
 ### 実測した `depth_blob` の位置づけ
 
-合成 depth（0.45 m のブロブ＋0.95 m の平面）で、平面のみ・斜面・小ブロブ・
-境界接触を棄却し、近傍ブロブを選ぶことを確認。**実機 depth では未測定**。
+**単位テスト（合成 depth）**: 0.45 m のブロブ＋0.95 m の平面で、平面のみ・斜面・
+小ブロブ・境界接触・範囲外を棄却し、近傍ブロブを選ぶことを確認。
+
+**sim の実 depth（Gazebo）**: `cube8_sim_setup.build_camera_sdf` に depth sensor
+（`type='depth'`、topic は `/cube8_sim/depth/depth/image_raw`、32FC1、実測レンジ
+0.301–1.993 m）を足して測定:
+
+| 項目 | 値 |
+| --- | --- |
+| 経路 | depth blob → 2面色 → シルエット精密化 → PnP（ラベル探索）→ 物理面確定 |
+| bbox source | `depth_blob`（**検出器なし・学習なし**）、quality 0.70 |
+| 並進 | **(-0.0004, -0.0001, 0.351) m** vs 真値 (0, 0, 0.35) m ＝ **1.05 mm** |
+| RMS | 1.03 px |
+| 色解決 | **true**（white / blue / orange） |
+| label swaps | (F, F, F)＝同一視点でもラベル探索が正しい割当を選んでいる |
+
+→ **`--no-yolo`（1 コンテナ）が実データで成立する**ことを sim で確認。
+**実機 RealSense の depth は依然未測定**。
 
 ## 8. 未検証（この文書が主張しないこと）
 
