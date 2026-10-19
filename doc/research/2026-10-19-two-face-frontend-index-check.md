@@ -73,6 +73,28 @@ to pass that gate; either the corner fit needs refinement against the projected
 geometry, or the gate needs a documented, measured rationale rather than being
 loosened ad hoc.
 
+## The fix is identifiable, not speculative
+
+The donor lane has the missing step: `cube_view_local.global_index_from_local`
+maps a local index to a canonical vertex given the **physical signs of the
+visible faces**. Applying it with the signs this view actually has
+(`x = -1`, `y = +1`, `z = +1`; the visible faces are `-x`, `+y`, `+z`) gives
+
+| local | 2 | 3 | 4 | 5 | 6 | 7 |
+| --- | --- | --- | --- | --- | --- | --- |
+| mapped canonical | 3 | 2 | 5 | 4 | 7 | 6 |
+| measured nearest | 3 | 2 | 5 | 4 | 1 | 6 |
+
+Five of six agree exactly. The sixth (local 6 → 7) was matched to vertex 1 by
+nearest-neighbour only because the shared-edge corners are the least accurate
+ones (6.8 px and 8.6 px), so the residual is defect 2, not a different mapping.
+
+So the port dropped one step: the lane labels observations in the local frame
+and then hands them to a canonical-order PnP. The fix is to port
+`VisibleFaceSigns` + `global_index_from_local` and apply it when building the
+PnP observations, with a test that ties the two orders together (the same
+treatment the face-to-colour table needed).
+
 ## What this means for the un-withhold path
 
 Both routes to a pose are now measured:
