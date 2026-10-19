@@ -22,6 +22,7 @@ from .cube_model_free_pose import (
     ModelFreePoseError,
     estimate_model_free_pose,
 )
+from .cube_overlay import draw_cube_overlay
 from .cube_pose_evidence import attach_pose_evidence
 
 
@@ -411,6 +412,11 @@ class YoloPoseNode(Node):
                 )
             except ModelFreePoseError as error:
                 self.get_logger().debug(f'model-free frame rejected: {error}')
+                self._publish_model_free_overlay(
+                    cv_image, image_msg, timestamp,
+                    status='rejected', reason=str(error),
+                    bbox_source='depth_blob',
+                )
             else:
                 detections.append({
                     'class_name': 'cube',
@@ -430,6 +436,14 @@ class YoloPoseNode(Node):
                         'faces': pose.face_evidence,
                     },
                 })
+                self._publish_model_free_overlay(
+                    cv_image, image_msg, timestamp, pose=pose, status=(
+                        'accepted' if pose.color_fixed_semantics_resolved
+                        else 'unresolved'
+                    ),
+                    reason='' if pose.color_fixed_semantics_resolved
+                    else pose.unresolved_reason,
+                )
         message = String()
         message.data = json.dumps({
             'timestamp': timestamp,
@@ -439,6 +453,89 @@ class YoloPoseNode(Node):
         }, ensure_ascii=False)
         self.publisher.publish(message)
         return detections
+
+    def _publish_model_free_overlay(
+        self, cv_image, image_msg, timestamp, *, pose=None, status='unknown',
+        reason='', bbox_source='',
+    ):
+        """Publish the annotated frame rqt shows, for accepted and rejected ones.
+
+        Called on every processed frame, not only on success: the most useful
+        thing this window does is explain a frame that produced no pose.
+        """
+        if self.debug_publisher is None and not self.debug_image_path:
+            return
+        try:
+            import cv2
+        except ImportError:
+            self.get_logger().warning('overlay skipped: OpenCV unavailable')
+            return
+
+        camera_matrix = (
+            tuple(float(value) for value in self.camera_info.k)
+            if self.camera_info is not None else None
+        )
+        pose_dict = None
+        face_regions = None
+        observed = None
+        visible_faces = None
+        resolved = None
+        swaps = None
+        rms = None
+        source = bbox_source
+        quality = None
+        box = None
+        if pose is not None:
+            pose_dict = {
+                'position_m': list(pose.translation_m),
+                'orientation_xyzw': list(pose.orientation_xyzw),
+            }
+            face_regions = {
+                slot: evidence.get('quad')
+                for slot, evidence in (pose.face_evidence or {}).items()
+                if isinstance(evidence, dict) and evidence.get('quad')
+            }
+            observed = dict(pose.visible_face_colors)
+            visible_faces = tuple(pose.visible_faces)
+            resolved = bool(pose.color_fixed_semantics_resolved)
+            swaps = tuple(pose.label_swaps)
+            rms = float(pose.reprojection_error_px)
+            source = pose.bbox_source
+            quality = float(pose.bbox_quality)
+            box = pose.bbox_xyxy
+        elif self.latest_depth is not None:
+            source = source or 'depth_blob'
+
+        annotated = draw_cube_overlay(
+            cv_image,
+            camera_matrix=camera_matrix,
+            pose=pose_dict,
+            bbox_xyxy=box,
+            bbox_source=source,
+            bbox_quality=quality,
+            face_regions=face_regions,
+            observed_colors=observed,
+            visible_faces=visible_faces,
+            status=status,
+            reason=reason,
+            reprojection_error_px=rms,
+            color_resolved=resolved,
+            label_swaps=swaps,
+            side_length_m=float(
+                self.get_parameter('cube_side_length_m').value
+            ),
+        )
+
+        if self.debug_publisher is not None:
+            message = self.bridge.cv2_to_imgmsg(annotated, encoding='bgr8')
+            message.header = image_msg.header
+            self.debug_publisher.publish(message)
+
+        if self.debug_image_path and pose is not None:
+            if not cv2.imwrite(self.debug_image_path, annotated):
+                self.get_logger().warning(
+                    f'failed to write debug image: {self.debug_image_path}'
+                )
 
     def _apply_model_free_pose(self, cv_image, detection, image_msg, timestamp):
         """Fill pose evidence from the model-free geometry+colour route."""

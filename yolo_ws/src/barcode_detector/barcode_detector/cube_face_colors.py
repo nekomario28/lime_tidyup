@@ -198,6 +198,21 @@ def _sticker_centres(face_name, side_length_m):
     return centres
 
 
+def _face_outline(face_name, position_m, orientation_xyzw, camera_matrix,
+                  side_length_m):
+    """Projected corners of a face, or ``None`` if any corner is behind."""
+    corners, _ = _face_corner_object_points(face_name, side_length_m)
+    outline = []
+    for corner in corners:
+        pixel = project_point(
+            corner, position_m, orientation_xyzw, camera_matrix
+        )
+        if pixel is None:
+            return None
+        outline.append([round(pixel[0], 1), round(pixel[1], 1)])
+    return outline
+
+
 def _patch_lab(image, u, v, radius):
     height, width = image.shape[0], image.shape[1]
     x = int(round(u))
@@ -267,6 +282,11 @@ def observe_face_colors(
             'sample_count': len(points),
             'lab': [round(value, 3) for value in median],
             'chroma': round(math.hypot(median[1], median[2]), 3),
+            # the face outline, so a viewer can show where the colour came from
+            'quad': _face_outline(
+                slot, position_m, orientation_xyzw, camera_matrix,
+                side_length_m,
+            ),
         }
     return observed, evidence
 

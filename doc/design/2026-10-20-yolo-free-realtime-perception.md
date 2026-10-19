@@ -158,7 +158,39 @@ confidence は幾何品質のみとし、「色解決済みか」は `pose_3d` �
 → **`--no-yolo`（1 コンテナ）が実データで成立する**ことを sim で確認。
 **実機 RealSense の depth は依然未測定**。
 
-## 8. 未検証（この文書が主張しないこと）
+## 8. 見える化（rqt / 内蔵ビューア）
+
+知覚結果を**そのまま画面に出す**。`cube_overlay.py` が純関数で描き、ノードが
+`debug_image_topic`（既定 `/cube_pose_debug_image`）へ publish する。描くのは
+**測ったものだけ**:
+
+| 描画 | 意味 |
+| --- | --- |
+| 緑の wireframe ＋ 3 軸 | 推定姿勢を投影。**ズレていれば一目で分かる** |
+| 橙の矩形 ＋ `bbox: depth_blob q=0.70` | 使った bbox と**その供給元** |
+| 黄の四角 ＋ `+x=white` 等 | 可視面の領域と**分類された色**（棄権は `?`） |
+| 灰のポリゴン | 角をスナップしたシルエット |
+| 上部の status 行 | `accepted` / `unresolved` / `rejected` ＋ **理由**、rms、bbox 元、色解決、`swaps=FFF` |
+| 下部の色一覧 | 可視スロットの観測色 |
+
+**拒否フレームも描く**（赤い status ＋ 理由）。「キューブは見えているのに知覚が
+断った、なぜか」がこの表示の一番の用途で、空のウィンドウでは答えられない。
+
+見る方法は 3 つ:
+
+```bash
+./bin/cubeview                        # OpenCV ウィンドウ（このホスト）
+./bin/cubeview --rqt                  # rqt_image_view（無ければ案内を出す）
+./bin/cubeview --snapshot out.jpg     # 1 枚保存して終了（ヘッドレス・CI 用）
+./bin/cubeview --topic /other --scale 1.5
+```
+
+`bin/ccc2 --no-yolo` 実行中はログに `./bin/cubeview` の案内を出す。
+実測（sim depth フレーム、検出器なし）: wireframe が 57 mm キューブに一致、
+`+x=white +y=blue +z=orange`（すべて正解）、`rms=1.03px`、`colors=resolved`、
+`swaps=FFF`。再現は `doc/research/probes/2026-10-20_render_overlay.py`。
+
+## 9. 未検証（この文書が主張しないこと）
 
 - `depth_blob` は合成 depth でしか測っていない。**実機 RealSense の depth では未測定**。
 - 実機の照明・材質・clutter での色判定は未測定（sim の合成レンダのみ）。

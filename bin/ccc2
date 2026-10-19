@@ -283,6 +283,7 @@ if [[ "${backend}" == "color_frontend" ]]; then
     echo "[ccc2] model-free pose: a pose is published only when the visible face"
     echo "[ccc2] colours resolve; otherwise /cube_pose_result carries the reason."
 fi
+echo "[ccc2] see what perception recognised: ./bin/cubeview (or --rqt)"
 echo "[ccc2] opening cm1 command prompt; type ccc at the \$ prompt"
 echo "[ccc2] Ctrl-C exits and stops this automated environment"
 run "${compose[@]}" exec lime_simul_demo_yuu bash -lc "${cm1_command}"

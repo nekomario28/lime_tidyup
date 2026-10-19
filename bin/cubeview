@@ -1,0 +1,142 @@
+#!/usr/bin/env python3
+"""View what the cube perception recognised.
+
+Three ways to look at the same annotated frame that the perception node
+publishes (default topic ``/cube_pose_debug_image``):
+
+    ./bin/cubeview                      # window (OpenCV) on this host
+    ./bin/cubeview --rqt                # rqt_image_view instead
+    ./bin/cubeview --snapshot out.jpg   # save one frame and exit (headless)
+
+The window shows the pose wireframe, the bbox and its source, the two face
+regions with the colour each was classified as, and a status line. Rejected
+frames are shown too: "the cube is there, perception refused, and here is why"
+is the case this is most needed for.
+
+Run it inside the same container as the perception node, or on the host with
+ROS_DOMAIN_ID and RMW_IMPLEMENTATION matching it.
+"""
+from __future__ import annotations
+
+import argparse
+import sys
+
+
+def parse_args(argv):
+    """Return the parsed arguments."""
+    parser = argparse.ArgumentParser(
+        prog='cubeview',
+        description='show the cube perception debug image',
+    )
+    parser.add_argument('--topic', default='/cube_pose_debug_image',
+                        help='annotated image topic')
+    parser.add_argument('--rqt', action='store_true',
+                        help='use rqt_image_view instead of a built-in window')
+    parser.add_argument('--snapshot', default='',
+                        help='save one frame to this path and exit')
+    parser.add_argument('--timeout', type=float, default=60.0,
+                        help='seconds to wait for a frame (0 = forever)')
+    parser.add_argument('--scale', type=float, default=1.0,
+                        help='window scale factor')
+    return parser.parse_args(argv)
+
+
+def run_rqt(topic):
+    """Hand the topic to rqt_image_view; fail with a hint if it is absent."""
+    import shutil
+    import subprocess
+
+    if shutil.which('rqt_image_view') is None:
+        print('[cubeview] rqt_image_view is not installed; run without --rqt '
+              'for the built-in window', file=sys.stderr)
+        return 1
+    print(f'[cubeview] rqt_image_view {topic}')
+    return subprocess.call(['rqt_image_view', topic])
+
+
+def main(argv=None):
+    """Subscribe, show (or save) the debug image."""
+    args = parse_args(sys.argv[1:] if argv is None else argv)
+    if args.rqt:
+        return run_rqt(args.topic)
+
+    try:
+        import cv2
+        import rclpy
+        from cv_bridge import CvBridge
+        from rclpy.node import Node
+        from sensor_msgs.msg import Image
+    except ImportError as error:
+        print(f'[cubeview] missing dependency: {error}. Run this inside the '
+              'Lime container, or install rclpy/cv_bridge/opencv.', file=sys.stderr)
+        return 2
+
+    state = {'frames': 0, 'saved': False}
+
+    class Viewer(Node):
+        def __init__(self):
+            super().__init__('cubeview')
+            self.bridge = CvBridge()
+            self.create_subscription(Image, args.topic, self.on_image, 1)
+            self.get_logger().info(f'subscribing {args.topic}')
+            if args.snapshot:
+                # publish fast enough to catch an unannotated frame early
+                self.last = 0.0
+
+        def on_image(self, msg):
+            try:
+                frame = self.bridge.imgmsg_to_cv2(msg, desired_encoding='bgr8')
+            except Exception as error:  # noqa: BLE001
+                self.get_logger().warning(f'decode failed: {error}')
+                return
+            state['frames'] += 1
+            if args.snapshot:
+                if not state['saved'] and cv2.imwrite(args.snapshot, frame):
+                    state['saved'] = True
+                    self.get_logger().info(f'saved {args.snapshot}')
+                return
+            if args.scale != 1.0:
+                frame = cv2.resize(
+                    frame, None, fx=args.scale, fy=args.scale,
+                    interpolation=cv2.INTER_AREA,
+                )
+            cv2.imshow('cube perception', frame)
+            if cv2.waitKey(1) & 0xFF == ord('q'):
+                raise SystemExit(0)
+
+    rclpy.init()
+    node = Viewer()
+    try:
+        while rclpy.ok():
+            rclpy.spin_once(node, timeout_sec=0.2)
+            if args.snapshot and state['saved']:
+                break
+            if args.timeout and not args.snapshot:
+                elapsed = node.get_clock().now().nanoseconds / 1e9
+                if elapsed > args.timeout and state['frames'] == 0:
+                    break
+            if args.timeout and args.snapshot:
+                elapsed = node.get_clock().now().nanoseconds / 1e9
+                if elapsed > args.timeout:
+                    break
+    except (KeyboardInterrupt, SystemExit):
+        pass
+    finally:
+        node.destroy_node()
+        if rclpy.ok():
+            rclpy.shutdown()
+        if not args.snapshot:
+            cv2.destroyAllWindows()
+
+    if state['frames'] == 0:
+        print(f'[cubeview] no frame on {args.topic}; is the perception node '
+              'running and on the same ROS_DOMAIN_ID?', file=sys.stderr)
+        return 1
+    if args.snapshot and not state['saved']:
+        print(f'[cubeview] could not write {args.snapshot}', file=sys.stderr)
+        return 1
+    return 0
+
+
+if __name__ == '__main__':
+    sys.exit(main())
