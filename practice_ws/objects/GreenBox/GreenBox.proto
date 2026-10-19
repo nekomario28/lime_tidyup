@@ -1,0 +1,46 @@
+#VRML_SIM R2025a utf8
+# 緑の立方体（一辺 0.04 m）。TurtleBot3 Lime のグリッパー
+# （指先内面間隔 約 22〜80 mm）で挟める大きさ。
+# 原点 = 箱の底面中央。
+
+PROTO GreenBox [
+  field SFVec3f    translation 0 0 0
+  field SFRotation rotation    0 0 1 0
+  field SFString   name        "green_box"
+]
+{
+  Solid {
+    translation IS translation
+    rotation IS rotation
+    name IS name
+    children [
+      Pose {
+        translation 0 0 0.02
+        children [
+          Shape {
+            appearance PBRAppearance {
+              baseColor 0 1 0
+              roughness 0.6
+              metalness 0
+            }
+            geometry Box {
+              size 0.04 0.04 0.04
+            }
+          }
+        ]
+      }
+    ]
+    boundingObject Pose {
+      translation 0 0 0.02
+      children [
+        Box {
+          size 0.04 0.04 0.04
+        }
+      ]
+    }
+    physics Physics {
+      density -1
+      mass 0.030
+    }
+  }
+}

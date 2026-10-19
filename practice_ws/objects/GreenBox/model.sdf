@@ -1,0 +1,38 @@
+<?xml version="1.0"?>
+<!-- GreenBox.proto（Webots 用）と同じ立方体。寸法・質量・色を変えるときは両方そろえること。 -->
+<sdf version="1.7">
+  <model name="green_box">
+    <link name="box">
+      <pose>0 0 0.02 0 0 0</pose>
+      <inertial>
+        <mass>0.03</mass>
+        <inertia>
+          <ixx>8.0e-06</ixx>
+          <iyy>8.0e-06</iyy>
+          <izz>8.0e-06</izz>
+          <ixy>0</ixy>
+          <ixz>0</ixz>
+          <iyz>0</iyz>
+        </inertia>
+      </inertial>
+      <visual name="visual">
+        <geometry>
+          <box>
+            <size>0.04 0.04 0.04</size>
+          </box>
+        </geometry>
+        <material>
+          <ambient>0 1 0 1</ambient>
+          <diffuse>0 1 0 1</diffuse>
+        </material>
+      </visual>
+      <collision name="collision">
+        <geometry>
+          <box>
+            <size>0.04 0.04 0.04</size>
+          </box>
+        </geometry>
+      </collision>
+    </link>
+  </model>
+</sdf>
