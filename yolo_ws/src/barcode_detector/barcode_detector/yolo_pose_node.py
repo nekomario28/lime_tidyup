@@ -169,9 +169,19 @@ class YoloPoseNode(Node):
             self.get_logger().info(
                 f'write debug image: {self.debug_image_path}'
             )
-        self.get_logger().info(f'model: {self.model_path}')
-        if self.model_sha256:
-            self.get_logger().info(f'model sha256: {self.model_sha256}')
+        if self.model is None:
+            # Say so explicitly: a stale "model: ..." line in a no-detector run
+            # reads as if a checkpoint were loaded.
+            self.get_logger().info(
+                'no detector loaded (model-free route, bbox from '
+                f'{self.bbox_source})'
+            )
+        else:
+            self.get_logger().info(f'model: {self.model_path}')
+            if self.model_sha256:
+                self.get_logger().info(
+                    f'model sha256: {self.model_sha256}'
+                )
 
     def depth_callback(self, msg):
         """Keep the latest depth frame in metres."""

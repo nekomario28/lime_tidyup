@@ -190,7 +190,36 @@ confidence は幾何品質のみとし、「色解決済みか」は `pose_3d` �
 `+x=white +y=blue +z=orange`（すべて正解）、`rms=1.03px`、`colors=resolved`、
 `swaps=FFF`。再現は `doc/research/probes/2026-10-20_render_overlay.py`。
 
-## 9. 未検証（この文書が主張しないこと）
+## 9. sim での統合確認（実ノード、検出器なし）
+
+Gazebo（生成した 57 mm キューブ、カメラ 0.45 m 高、depth sensor あり）に対して
+**実ノード**を起動:
+
+```bash
+ros2 run barcode_detector yolo_pose_node --ros-args \
+  -p perception_backend:=color_frontend -p bbox_source:=depth_blob \
+  -p depth_topic:=/cube8_sim/depth/depth/image_raw -p depth_scale_m:=1.0 \
+  -r /camera/camera/color/image_raw:=/cube8_sim/camera/image_raw \
+  -r /camera/camera/color/camera_info:=/cube8_sim/camera/camera_info
+```
+
+| 項目 | 実測 |
+| --- | --- |
+| 起動ログ | `no detector loaded (model-free route, bbox from depth_blob)` |
+| 周期 | 1 Hz で `published 1 model-free detections` |
+| `/cube_pose_result` | `confidence 0.557`、`model_path: ""`、`model_sha256: ""` |
+| `box_xyxy` | `[477.4, 197.4, 814.6, 534.6]`（depth blob 由来） |
+| `pose_3d.position_m` | `(-0.00037, -0.00010, 0.35098)` vs 真値 (0,0,0.35) ＝ **0.98 mm** |
+| `pose_3d` 他 | `rms 1.03 px`、`correspondence 6 / inlier 6`、`inlier_mask [0,0,1,1,1,1,1,1]`（隠れ頂点0 は観測に入らない） |
+| 色 | `color_fixed_semantics_resolved: true`、`+x white / +y blue / +z orange`、`label_swaps [F,F,F]` |
+| overlay | `/cube_pose_debug_image` に publish、`debug_image_path` へも保存（同一 77,249 bytes） |
+
+overlay の実画像: `doc/research/evidence/2026-10-20-model-free-overlay-sim.jpg`
+（wireframe がキューブに一致、bbox は橙枠で `bbox: depth_blob q=0.70`、面ラベルは
+`+x=white +y=blue +z=orange`、上部に `accepted rms=1.03px … swaps=FFF`）。
+再現手順: `doc/research/probes/2026-10-20_run_sim_nodector.sh`。
+
+## 10. 未検証（この文書が主張しないこと）
 
 - `depth_blob` は合成 depth でしか測っていない。**実機 RealSense の depth では未測定**。
 - 実機の照明・材質・clutter での色判定は未測定（sim の合成レンダのみ）。
