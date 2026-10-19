@@ -1,0 +1,209 @@
+#!/usr/bin/env bash
+
+set -Eeuo pipefail
+
+script_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+project_dir="$(cd -- "${script_dir}/.." && pwd)"
+compose=(
+    docker compose
+    -f "${project_dir}/docker-compose.yaml"
+    -f "${project_dir}/docker-compose.ccc.yaml"
+)
+map_file="/root/practice_ws/maps/oc4.yaml"
+dry_run=false
+keep_running=false
+started=false
+evidence_dir="${CCC2_EVIDENCE_DIR:-${CCC_EVIDENCE_DIR:-}}"
+# Perception route for the pose leg. ccc2 defaults to the model-free
+# geometry+colour route; pass --backend yolov8-pose for the trained-keypoint
+# route that plain ccc uses.
+backend="${CCC2_PERCEPTION_BACKEND:-color_frontend}"
+
+usage() {
+    echo "Usage: ./bin/ccc2 [--dry-run] [--keep] [--map PATH] [--evidence-dir PATH] [--backend NAME]"
+    echo "  --dry-run      Print commands without starting Docker or ROS."
+    echo "  --keep         Leave the two containers running after cm1 exits."
+    echo "  --map          Override the Nav2 map path inside the Lime container."
+    echo "  --evidence-dir Persist logs/debug evidence under PATH on the host."
+    echo "  --backend      Pose route: color_frontend (default, no trained model)"
+    echo "                 or yolov8-pose (trained keypoints, same as ./bin/ccc)."
+    echo "  Env: CCC2_PERCEPTION_BACKEND, CCC2_EVIDENCE_DIR (CCC_EVIDENCE_DIR also read)."
+}
+
+show_command() {
+    printf ' +'
+    printf ' %q' "$@"
+    printf '\n'
+}
+
+run() {
+    if ${dry_run}; then
+        show_command "$@"
+    else
+        "$@"
+    fi
+}
+
+cleanup() {
+    if ${dry_run}; then
+        return
+    fi
+    if ${started} && ! ${keep_running}; then
+        echo "[ccc2] stopping containers"
+        if ! "${compose[@]}" down --timeout 3 >/dev/null 2>&1; then
+            echo "[ccc2] failed to stop containers; run docker compose down" >&2
+        fi
+    elif ${started}; then
+        echo "[ccc2] containers kept running (--keep)"
+    fi
+}
+
+while (($# > 0)); do
+    case "$1" in
+        --dry-run)
+            dry_run=true
+            ;;
+        --keep)
+            keep_running=true
+            ;;
+        --map)
+            if (($# < 2)); then
+                echo "[ccc2] --map requires a path" >&2
+                exit 2
+            fi
+            map_file="$2"
+            shift
+            ;;
+        --backend)
+            if (($# < 2)); then
+                echo "[ccc2] --backend requires a name" >&2
+                exit 2
+            fi
+            backend="$2"
+            case "${backend}" in
+                color_frontend|yolov8-pose)
+                    ;;
+                *)
+                    echo "[ccc2] unknown backend: ${backend}" >&2
+                    exit 2
+                    ;;
+            esac
+            shift
+            ;;
+        --evidence-dir)
+            if (($# < 2)); then
+                echo "[ccc2] --evidence-dir requires a path" >&2
+                exit 2
+            fi
+            evidence_dir="$2"
+            shift
+            ;;
+        -h|--help)
+            usage
+            exit 0
+            ;;
+        *)
+            echo "[ccc2] unknown option: $1" >&2
+            usage >&2
+            exit 2
+            ;;
+    esac
+    shift
+done
+
+if [[ -z "${evidence_dir}" ]]; then
+    run_stamp="$(date -u +%Y%m%dT%H%M%SZ)"
+    dev2_short_sha="$(
+        git -C "${project_dir}" rev-parse --short=12 HEAD 2>/dev/null ||
+            printf 'unknown'
+    )"
+    evidence_dir="${project_dir}/yolo_ws/log/ccc2/${run_stamp}-${dev2_short_sha}"
+elif [[ "${evidence_dir}" != /* ]]; then
+    evidence_dir="${project_dir}/${evidence_dir}"
+fi
+export CCC_EVIDENCE_DIR="${evidence_dir}"
+export CCC2_EVIDENCE_DIR="${evidence_dir}"
+
+if ! ${dry_run}; then
+    command -v docker >/dev/null || {
+        echo "[ccc2] docker was not found" >&2
+        exit 1
+    }
+    docker compose version >/dev/null || {
+        echo "[ccc2] docker compose was not found" >&2
+        exit 1
+    }
+    if [[ -z "${DISPLAY:-}" ]]; then
+        echo "[ccc2] DISPLAY is empty; connect with ssh -XY" >&2
+        exit 1
+    fi
+fi
+
+trap cleanup EXIT
+cd "${project_dir}"
+
+run mkdir -p "${evidence_dir}"
+echo "[ccc2] evidence: ${evidence_dir}"
+echo "[ccc2] pose route: ${backend}"
+
+echo "[ccc2] starting Lime and YOLO containers"
+started=true
+run "${compose[@]}" up -d --no-build lime_simul_demo_yuu yolo
+
+echo "[ccc2] rebuilding barcode_detector from mounted dev2 source"
+yolo_build_command='set -Eeuo pipefail; source /opt/ros/humble/setup.bash; cd /root/yolo_ws; colcon build --symlink-install --packages-select barcode_detector'
+run "${compose[@]}" exec -T yolo bash -lc "${yolo_build_command}"
+
+# The model-free route resolves colour itself, so the keypoint-path evidence
+# stages stay off for it. For yolov8-pose they remain opt-in behind
+# CUBE_EVIDENCE_GATE=1, which keeps the published contract unchanged.
+evidence_args=""
+backend_args="-p perception_backend:=${backend} "
+if [[ "${backend}" == "yolov8-pose" && "${CUBE_EVIDENCE_GATE:-0}" == "1" ]]; then
+    evidence_args='-p enable_visibility_gate:=true -p enable_face_color_selection:=true '
+fi
+yolo_command="mkdir -p /root/ccc_evidence; source /opt/ros/humble/setup.bash; source /root/yolo_ws/install/setup.bash; exec ros2 run barcode_detector yolo_pose_node --ros-args ${backend_args}${evidence_args}-p debug_image_path:=/root/ccc_evidence/cube_pose_debug.jpg >>/root/ccc_evidence/yolo.log 2>&1"
+printf -v map_file_quoted '%q' "${map_file}"
+navigation_command="mkdir -p /root/ccc_evidence; source /opt/ros/humble/setup.bash; source /project/lib_ws/install/setup.bash; source /root/turtlebot3_ws/install/setup.bash; exec ros2 launch turtlebot3_lime_navigation2 navigation2.launch.py map_yaml_file:=${map_file_quoted} >>/root/ccc_evidence/navigation.log 2>&1"
+moveit_command='mkdir -p /root/ccc_evidence; source /opt/ros/humble/setup.bash; source /project/lib_ws/install/setup.bash; source /root/turtlebot3_ws/install/setup.bash; exec ros2 launch turtlebot3_lime_moveit_config moveit_core.launch.py >>/root/ccc_evidence/moveit.log 2>&1'
+
+echo "[ccc2] starting YOLO (${backend}), Nav2 and MoveIt"
+run "${compose[@]}" exec -T -d yolo bash -lc "${yolo_command}"
+run "${compose[@]}" exec -T -d lime_simul_demo_yuu \
+    bash -lc "${navigation_command}"
+run "${compose[@]}" exec -T -d lime_simul_demo_yuu \
+    bash -lc "${moveit_command}"
+
+if ! ${dry_run}; then
+    sleep 2
+    checks=(
+        'yolo:yolo_pose_node:/root/ccc_evidence/yolo.log'
+        'lime_simul_demo_yuu:navigation2.launch.py:/root/ccc_evidence/navigation.log'
+        'lime_simul_demo_yuu:moveit_core.launch.py:/root/ccc_evidence/moveit.log'
+    )
+    for check in "${checks[@]}"; do
+        IFS=: read -r service pattern log_path <<<"${check}"
+        if ! "${compose[@]}" exec -T "${service}" \
+            pgrep -f "${pattern}" >/dev/null; then
+            echo "[ccc2] ${pattern} failed; ${service}:${log_path}" >&2
+            "${compose[@]}" exec -T "${service}" \
+                tail -n 40 "${log_path}" >&2 || true
+            exit 1
+        fi
+    done
+fi
+
+register_command="source /opt/ros/humble/setup.bash; source /project/lib_ws/install/setup.bash; source /root/turtlebot3_ws/install/setup.bash; cd /root/pytwb_ws; printf 'create cm1\\nY\\nexit\\n' | pytwb"
+cm1_command='source /opt/ros/humble/setup.bash; source /project/lib_ws/install/setup.bash; source /root/turtlebot3_ws/install/setup.bash; cd /root/pytwb_ws/src; child=; stop_cm1() { if [[ -n "${child}" ]]; then kill -TERM "${child}" 2>/dev/null || true; sleep 1; kill -KILL "${child}" 2>/dev/null || true; fi; exit 130; }; trap stop_cm1 INT TERM; python3 cm1 <&0 & child=$!; wait "${child}"'
+
+echo "[ccc2] registering cm1"
+run "${compose[@]}" exec -T lime_simul_demo_yuu \
+    bash -lc "${register_command}"
+
+if [[ "${backend}" == "color_frontend" ]]; then
+    echo "[ccc2] model-free pose: a pose is published only when the visible face"
+    echo "[ccc2] colours resolve; otherwise /cube_pose_result carries the reason."
+fi
+echo "[ccc2] opening cm1 command prompt; type ccc at the \$ prompt"
+echo "[ccc2] Ctrl-C exits and stops this automated environment"
+run "${compose[@]}" exec lime_simul_demo_yuu bash -lc "${cm1_command}"
