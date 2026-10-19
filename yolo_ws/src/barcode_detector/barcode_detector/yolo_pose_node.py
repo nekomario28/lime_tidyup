@@ -13,6 +13,10 @@ from cv_bridge import CvBridge
 from ultralytics import YOLO
 
 from .cube_pose_3d import CubePose3DError, estimate_cube_pose_3d
+from .cube_model_free_pose import (
+    ModelFreePoseError,
+    estimate_model_free_pose,
+)
 from .cube_pose_evidence import attach_pose_evidence
 
 
@@ -43,6 +47,10 @@ class YoloPoseNode(Node):
         self.declare_parameter('enable_face_color_selection', False)
         self.declare_parameter('face_color_minimum_chroma', 10.0)
         self.declare_parameter('face_color_minimum_hue_margin_deg', 8.0)
+        # Perception route. 'yolov8-pose' is the trained-keypoint path;
+        # 'color_frontend' is the model-free geometry+colour path, which needs a
+        # detector only for a bounding box.
+        self.declare_parameter('perception_backend', 'yolov8-pose')
 
         self.model_path = str(self.get_parameter('model_path').value)
         self.publish_debug_image = bool(
@@ -65,6 +73,9 @@ class YoloPoseNode(Node):
         )
         self.face_color_minimum_hue_margin_deg = float(
             self.get_parameter('face_color_minimum_hue_margin_deg').value
+        )
+        self.perception_backend = str(
+            self.get_parameter('perception_backend').value
         )
 
         self.bridge = CvBridge()
@@ -112,6 +123,9 @@ class YoloPoseNode(Node):
         self.get_logger().info(
             f'visibility gate: {self.enable_visibility_gate}, '
             f'face colour selection: {self.enable_face_color_selection}'
+        )
+        self.get_logger().info(
+            f'perception backend: {self.perception_backend}'
         )
         if self.debug_image_path:
             self.get_logger().info(
@@ -188,15 +202,20 @@ class YoloPoseNode(Node):
                         )
                     }
 
-                    pose_3d, pose_debug = self._estimate_pose_3d_with_debug(
-                        msg,
-                        now,
-                        detection['keypoints_xy'],
-                        detection['keypoints_confidence']
-                    )
-                    detection['pose_3d_debug'] = pose_debug
-                    if pose_3d is not None:
-                        detection['pose_3d'] = pose_3d
+                    if self.perception_backend == 'color_frontend':
+                        detection = self._apply_model_free_pose(
+                            cv_image, detection, msg, now
+                        )
+                    else:
+                        pose_3d, pose_debug = self._estimate_pose_3d_with_debug(
+                            msg,
+                            now,
+                            detection['keypoints_xy'],
+                            detection['keypoints_confidence']
+                        )
+                        detection['pose_3d_debug'] = pose_debug
+                        if pose_3d is not None:
+                            detection['pose_3d'] = pose_3d
 
                     detection = attach_pose_evidence(
                         cv_image,
@@ -253,6 +272,83 @@ class YoloPoseNode(Node):
 
         except Exception as e:
             self.get_logger().error(f'YOLO pose error: {e}')
+
+    def _apply_model_free_pose(self, cv_image, detection, image_msg, timestamp):
+        """Fill pose evidence from the model-free geometry+colour route."""
+        camera_info = self.camera_info
+        if camera_info is None:
+            detection['pose_3d_debug'] = {
+                'status': 'unavailable', 'reason': 'CameraInfo unavailable',
+            }
+            return detection
+        try:
+            pose = estimate_model_free_pose(
+                cv_image,
+                camera_info.k,
+                detection['box_xyxy'],
+                side_length_m=float(
+                    self.get_parameter('cube_side_length_m').value
+                ),
+                maximum_reprojection_error_px=float(
+                    self.get_parameter('max_reprojection_error_px').value
+                ),
+                minimum_chroma=self.face_color_minimum_chroma,
+                minimum_hue_margin_deg=(
+                    self.face_color_minimum_hue_margin_deg
+                ),
+            )
+        except ModelFreePoseError as error:
+            detection['pose_3d_debug'] = {
+                'status': 'rejected',
+                'reason': str(error),
+                'backend': 'color_frontend',
+            }
+            return detection
+
+        frame_id = camera_info.header.frame_id or image_msg.header.frame_id
+        evidence = {
+            'backend': 'color_frontend',
+            'label_swaps': list(pose.label_swaps),
+            'visible_faces': list(pose.visible_faces),
+            'hypothesis_count': pose.hypothesis_count,
+            'faces': pose.face_evidence,
+        }
+        detection['pose_evidence'] = {'model_free': evidence}
+        if not pose.color_fixed_semantics_resolved:
+            detection['pose_3d_debug'] = {
+                'status': 'unresolved',
+                'reason': pose.unresolved_reason,
+                'backend': 'color_frontend',
+                'observed': dict(pose.visible_face_colors),
+            }
+            return detection
+
+        detection['pose_3d'] = {
+            'geometry_id': 'cube-axis-v1',
+            'frame_id': frame_id,
+            'timestamp': timestamp,
+            'side_length_m': float(
+                self.get_parameter('cube_side_length_m').value
+            ),
+            'position_m': list(pose.translation_m),
+            'orientation_xyzw': list(pose.orientation_xyzw),
+            'reprojection_error_px': pose.reprojection_error_px,
+            'correspondence_count': pose.correspondence_count,
+            'inlier_count': pose.inlier_count,
+            'inlier_mask': list(pose.inlier_mask),
+            'color_fixed_semantics_resolved': True,
+            'hypothesis_color_margin': pose.color_margin,
+            'hypothesis_color_agreement': pose.color_agreement,
+            'visible_face_colors': dict(pose.visible_face_colors),
+            'label_swaps': list(pose.label_swaps),
+            'perception_backend': 'color_frontend',
+        }
+        detection['pose_3d_debug'] = {
+            'status': 'accepted',
+            'reason': '',
+            'backend': 'color_frontend',
+        }
+        return detection
 
     def _estimate_pose_3d_with_debug(
         self,
