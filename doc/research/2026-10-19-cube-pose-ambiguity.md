@@ -53,8 +53,12 @@ Two consequences follow directly from the 0.0 px residual:
   sufficient evidence; 54 landmarks are not required to break this symmetry.
 - **Keep withholding single-face views.** A frontal view has four
   geometry-equivalent poses 90° apart and all of them predict the *same* face
-  colour, so colour cannot break the tie. That view must stay `Unknown`; the
-  budget belongs to approaching until a second face is visible, not to guessing.
+  colour, so colour cannot break the tie. In practice the runtime never reaches
+  that tie: four coplanar corners do not determine a pose, so
+  `estimate_cube_pose_3d` already rejects the configuration (verified: the
+  coplanar four-point sample raises instead of returning a pose). The four-fold
+  count stays a geometric fact, not a runtime risk; the budget belongs to
+  approaching until a second face is visible.
 - **The existing two-hypothesis chirality selector is not enough for the 3-face
   case.** Enumerating `identity` and `swap_xy` covers a reflection; the measured
   ambiguity is the **three-element stabiliser of the hidden corner** (identity
