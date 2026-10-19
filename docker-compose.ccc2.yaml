@@ -1,0 +1,16 @@
+# One-container perception: no YOLO service, no learned model.
+#
+# Used by `bin/ccc2 --no-yolo`. The Lime container gets the yolo workspace
+# mounted so the perception node can be built and run there, and the arm/Nav2
+# stack stays where it already is. Kept as a separate overlay so the two-service
+# compose files stay valid for `./bin/ccc` and plain `./bin/ccc2`.
+services:
+  lime_simul_demo_yuu:
+    command: ["sleep", "infinity"]
+    environment:
+      ROS_DOMAIN_ID: "20"
+      RMW_IMPLEMENTATION: rmw_cyclonedds_cpp
+      CYCLONEDDS_URI: /root/bin/cyclone.xml
+    volumes:
+      - ./yolo_ws:/root/yolo_ws:rw
+      - ${CCC_EVIDENCE_DIR:-./yolo_ws/log/ccc2/direct-compose}:/root/ccc_evidence:rw

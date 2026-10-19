@@ -123,9 +123,28 @@ confidence = min(face_support_ok, geometry_gate_ok, 1 / (1 + rms_px), colour_res
 | 床が白い | `depth_blob` で回避。`colour_pair` は使わない |
 | 実機の clutter | depth の作業距離帯＋平面残差＋アスペクトで棄却。棄却時は「未検出」= 探索継続 |
 
-## 7. 未検証（この文書が主張しないこと）
+## 7. 実装（step 2–3 完了）
 
-- `depth_blob` は**未実装**。実装して測るまで「実機で YOLO 不要」とは言わない。
+| 実装 | 内容 | 検証 |
+| --- | --- | --- |
+| `cube_bbox_source.py` | `detector` / `depth_blob` を切り替える 1 点。`colour_pair` は**実験専用として明示的に拒否** | 17 unittest（近傍ブロブ受理、平面・斜面・小ブロブ・境界接触・範囲外を拒否、決定論、設定不正） |
+| `cube_model_free_pose` | `bbox_source` / `depth_image` / `roi_xyxy` を受ける。結果に `bbox_source` / `bbox_quality` / `bbox_xyxy` を付与 | depth 経路のテスト 3 本（depth から姿勢、平面のみは拒否、bbox も depth も無い場合は拒否） |
+| `yolo_pose_node` | `perception_backend=color_frontend` + `bbox_source=depth_blob` では**検出器を読み込まない**（`ultralytics` 不在でも import 可）。`depth_topic` / `depth_scale_m` を追加し、depth を購読して深度フレームから bbox を作る。`confidence` は幾何品質（色未解決でも接近は許可、フラグは `pose_3d` に載る） | `ultralytics` を欠落させた状態で import 成功を確認 |
+| `docker-compose.ccc2.yaml` + `bin/ccc2 --no-yolo` | `yolo` サービスを使わず、Lime コンテナ内で知覚ノードを build/起動（`yolo_ws` を mount）。depth topic/scale は CLI で指定 | dry-run で両モードのコマンド列を確認（--no-yolo: yolo なし、`bbox_source:=depth_blob`、`depth_topic` 指定） |
+
+`confidence` の再定義について: 色未解決のときに confidence を 0 に落とすと
+**接近そのものが止まり、2 面目が視野に入らず永久に未解決**になる。そのため
+confidence は幾何品質のみとし、「色解決済みか」は `pose_3d` のフラグで運び、
+把持可否は下流（`ArmToCube`）が判断する。
+
+### 実測した `depth_blob` の位置づけ
+
+合成 depth（0.45 m のブロブ＋0.95 m の平面）で、平面のみ・斜面・小ブロブ・
+境界接触を棄却し、近傍ブロブを選ぶことを確認。**実機 depth では未測定**。
+
+## 8. 未検証（この文書が主張しないこと）
+
+- `depth_blob` は合成 depth でしか測っていない。**実機 RealSense の depth では未測定**。
 - 実機の照明・材質・clutter での色判定は未測定（sim の合成レンダのみ）。
 - レイテンシ・FPS は測っていない（どちらの経路も）。
 - 現状の sim カメラは colour のみなので、sim で `depth_blob` を測るには

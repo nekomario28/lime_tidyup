@@ -28,6 +28,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+from .cube_bbox_source import BboxSourceError, choose_bbox
 from .cube_face_colors import observe_face_colors
 from .cube_pose_hypotheses import hypotheses_from_pose
 from .cube8_pnp import CameraModel
@@ -76,6 +77,9 @@ class ModelFreePose:
     correspondence_count: int
     inlier_count: int
     inlier_mask: tuple[int, ...]
+    bbox_source: str = 'detector'
+    bbox_quality: float = 1.0
+    bbox_xyxy: tuple[float, float, float, float] = (0.0, 0.0, 0.0, 0.0)
 
 
 def _sign_matrix(physical_by_slot):
@@ -176,8 +180,12 @@ def _compose(orientation_xyzw, sign_matrix):
 def estimate_model_free_pose(
     image,
     camera_matrix,
-    bbox_xyxy,
+    bbox_xyxy=None,
     *,
+    depth_image=None,
+    bbox_source='detector',
+    depth_config=None,
+    roi_xyxy=None,
     side_length_m=0.057,
     maximum_reprojection_error_px=4.0,
     minimum_chroma=None,
@@ -192,6 +200,17 @@ def estimate_model_free_pose(
     ``color_fixed_semantics_resolved`` false and the reason recorded, because
     the geometry is still usable evidence.
     """
+    try:
+        bbox = choose_bbox(
+            bbox_source,
+            detector_box=bbox_xyxy,
+            depth_image=depth_image,
+            depth_config=depth_config,
+            roi_xyxy=roi_xyxy,
+        )
+    except BboxSourceError as error:
+        raise ModelFreePoseError(f'bbox source rejected: {error}') from error
+
     camera = CameraModel(
         k=tuple(float(value) for value in camera_matrix),
         d=(0.0, 0.0, 0.0, 0.0, 0.0),
@@ -199,7 +218,7 @@ def estimate_model_free_pose(
     frontend_config = config or TwoFaceColorFrontendConfig()
     try:
         observation = recover_two_face_view_local_from_bgr(
-            image, bbox_xyxy, config=frontend_config
+            image, bbox.box_xyxy, config=frontend_config
         )
     except Cube8TwoFaceColorError as error:
         raise ModelFreePoseError(
@@ -282,6 +301,9 @@ def estimate_model_free_pose(
             correspondence_count=int(pose.correspondence_count),
             inlier_count=int(pose.inlier_count),
             inlier_mask=tuple(int(v) for v in pose.inlier_mask),
+            bbox_source=bbox.source,
+            bbox_quality=bbox.quality,
+            bbox_xyxy=tuple(float(v) for v in bbox.box_xyxy),
         )
 
     # The colour labels say which physical face each visible slot is, so the
@@ -308,4 +330,7 @@ def estimate_model_free_pose(
         correspondence_count=int(pose.correspondence_count),
         inlier_count=int(pose.inlier_count),
         inlier_mask=tuple(int(v) for v in pose.inlier_mask),
+        bbox_source=bbox.source,
+        bbox_quality=bbox.quality,
+        bbox_xyxy=tuple(float(v) for v in bbox.box_xyxy),
     )

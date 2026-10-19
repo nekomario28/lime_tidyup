@@ -153,6 +153,43 @@ class ModelFreePoseTest(unittest.TestCase):
         self.assertLess(worst(snapped['y']), worst(quad))
         self.assertLess(worst(snapped['y']), 3.0)
 
+    def test_a_depth_blob_can_supply_the_box(self):
+        """The pose path can run with no detector: depth blob -> colour -> pose."""
+        import numpy as np
+
+        # Build a depth image whose blob matches the cube's image extent.
+        pose_truth = _frame('frame_fill_light.png')
+        depth = np.full(pose_truth.shape[:2], 0.95, dtype=np.float32)
+        depth[223:512, 492:791] = 0.35
+        result = estimate_model_free_pose(
+            pose_truth, CAMERA_MATRIX, depth_image=depth,
+            bbox_source='depth_blob',
+        )
+        self.assertEqual(result.bbox_source, 'depth_blob')
+        self.assertGreater(result.bbox_quality, 0.0)
+        self.assertTrue(result.color_fixed_semantics_resolved)
+        error_mm = math.sqrt(sum(
+            (got - want) ** 2
+            for got, want in zip(result.translation_m, TRUTH_POSITION)
+        )) * 1000.0
+        self.assertLess(error_mm, 8.0)
+
+    def test_a_depth_plane_without_a_blob_is_refused(self):
+        import numpy as np
+
+        image = _frame('frame_fill_light.png')
+        depth = np.full(image.shape[:2], 0.95, dtype=np.float32)
+        with self.assertRaises(ModelFreePoseError):
+            estimate_model_free_pose(
+                image, CAMERA_MATRIX, depth_image=depth,
+                bbox_source='depth_blob',
+            )
+
+    def test_a_missing_box_and_depth_is_refused(self):
+        image = _frame('frame_fill_light.png')
+        with self.assertRaises(ModelFreePoseError):
+            estimate_model_free_pose(image, CAMERA_MATRIX)
+
     def test_an_empty_frame_is_refused(self):
         image = _frame('frame_fill_light.png') * 0
         with self.assertRaises(ModelFreePoseError):

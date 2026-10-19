@@ -1,5 +1,7 @@
 import hashlib
 import json
+
+import numpy as np
 import math
 import time
 
@@ -10,7 +12,10 @@ from sensor_msgs.msg import CameraInfo, Image
 from std_msgs.msg import String
 from cv_bridge import CvBridge
 
-from ultralytics import YOLO
+try:  # the model-free route must import without the ML stack installed
+    from ultralytics import YOLO
+except Exception:  # pragma: no cover - absence is a supported configuration
+    YOLO = None
 
 from .cube_pose_3d import CubePose3DError, estimate_cube_pose_3d
 from .cube_model_free_pose import (
@@ -51,6 +56,12 @@ class YoloPoseNode(Node):
         # 'color_frontend' is the model-free geometry+colour path, which needs a
         # detector only for a bounding box.
         self.declare_parameter('perception_backend', 'yolov8-pose')
+        # Where the cube bounding box comes from. 'detector' keeps the previous
+        # behaviour; 'depth_blob' needs no learned detector at all and reads a
+        # depth image instead (see cube_bbox_source).
+        self.declare_parameter('bbox_source', 'detector')
+        self.declare_parameter('depth_topic', '')
+        self.declare_parameter('depth_scale_m', 0.001)
 
         self.model_path = str(self.get_parameter('model_path').value)
         self.publish_debug_image = bool(
@@ -77,10 +88,36 @@ class YoloPoseNode(Node):
         self.perception_backend = str(
             self.get_parameter('perception_backend').value
         )
+        self.bbox_source = str(self.get_parameter('bbox_source').value)
+        self.depth_topic = str(self.get_parameter('depth_topic').value)
+        self.depth_scale_m = float(self.get_parameter('depth_scale_m').value)
+        self.latest_depth = None
+        if self.bbox_source == 'depth_blob':
+            if not self.depth_topic:
+                raise RuntimeError(
+                    'bbox_source=depth_blob requires the depth_topic parameter'
+                )
+            self.create_subscription(
+                Image, self.depth_topic, self.depth_callback, 1
+            )
 
         self.bridge = CvBridge()
-        self.model_sha256 = self._compute_file_sha256(self.model_path)
-        self.model = YOLO(self.model_path)
+        self.model_sha256 = ''
+        self.model = None
+        # Load the detector only when the route needs it: with bbox_source
+        # depth_blob and backend color_frontend nothing here uses it, and the
+        # module must run in an image without ultralytics.
+        needs_detector = not (
+            self.perception_backend == 'color_frontend'
+            and self.bbox_source == 'depth_blob'
+        )
+        if needs_detector:
+            if YOLO is None:
+                raise RuntimeError(
+                    'ultralytics is not installed but the detector is required'
+                )
+            self.model_sha256 = self._compute_file_sha256(self.model_path)
+            self.model = YOLO(self.model_path)
         self.camera_info = None
 
         self.last_time = 0.0
@@ -135,6 +172,27 @@ class YoloPoseNode(Node):
         if self.model_sha256:
             self.get_logger().info(f'model sha256: {self.model_sha256}')
 
+    def depth_callback(self, msg):
+        """Keep the latest depth frame in metres."""
+        try:
+            height, width = msg.height, msg.width
+            if msg.encoding in ('32FC1', '64FC1'):
+                raw = np.frombuffer(msg.data, dtype=np.float32 if
+                                    msg.encoding == '32FC1' else np.float64)
+                depth = raw.reshape(height, width).astype(np.float32)
+            elif msg.encoding in ('16UC1', 'mono16'):
+                raw = np.frombuffer(msg.data, dtype=np.uint16)
+                depth = (raw.reshape(height, width).astype(np.float32)
+                         * self.depth_scale_m)
+            else:
+                self.get_logger().warning(
+                    f'unsupported depth encoding: {msg.encoding}'
+                )
+                return
+            self.latest_depth = depth
+        except Exception as error:  # noqa: BLE001 - never kill the callback
+            self.get_logger().warning(f'depth decode failed: {error}')
+
     def camera_info_callback(self, msg):
         """Keep the latest static color-camera calibration."""
         self.camera_info = msg
@@ -147,6 +205,26 @@ class YoloPoseNode(Node):
             return
 
         self.last_time = now
+
+        # No detector at all: the depth blob supplies the box and the rest is
+        # geometry + colour. This is the intended route on the real robot.
+        if (self.perception_backend == 'color_frontend'
+                and self.bbox_source == 'depth_blob'):
+            try:
+                cv_image = self.bridge.imgmsg_to_cv2(
+                    msg, desired_encoding='bgr8'
+                )
+            except Exception as error:  # noqa: BLE001
+                self.get_logger().error(f'image decode failed: {error}')
+                return
+            detections = self._publish_detectionless_frame(
+                cv_image, msg, now
+            )
+            if detections:
+                self.get_logger().info(
+                    f'published {len(detections)} model-free detections'
+                )
+            return
 
         try:
             cv_image = self.bridge.imgmsg_to_cv2(
@@ -272,6 +350,95 @@ class YoloPoseNode(Node):
 
         except Exception as e:
             self.get_logger().error(f'YOLO pose error: {e}')
+
+    def _model_free_pose_dict(self, pose, frame_id, timestamp):
+        """Build the /cube_pose_result pose payload for one model-free pose."""
+        return {
+            'geometry_id': 'cube-axis-v1',
+            'frame_id': frame_id,
+            'timestamp': timestamp,
+            'side_length_m': float(
+                self.get_parameter('cube_side_length_m').value
+            ),
+            'position_m': list(pose.translation_m),
+            'orientation_xyzw': list(pose.orientation_xyzw),
+            'reprojection_error_px': pose.reprojection_error_px,
+            'correspondence_count': pose.correspondence_count,
+            'inlier_count': pose.inlier_count,
+            'inlier_mask': list(pose.inlier_mask),
+            'color_fixed_semantics_resolved': (
+                pose.color_fixed_semantics_resolved
+            ),
+            'hypothesis_color_margin': pose.color_margin,
+            'hypothesis_color_agreement': pose.color_agreement,
+            'visible_face_colors': dict(pose.visible_face_colors),
+            'label_swaps': list(pose.label_swaps),
+            'bbox_source': pose.bbox_source,
+            'perception_backend': 'color_frontend',
+        }
+
+    def _model_free_confidence(self, pose):
+        """Geometry quality as a detector-like confidence.
+
+        Colour resolution is deliberately not folded in: an unresolved cube is
+        still something to approach, and withholding the approach would prevent
+        the second face from ever coming into view. The flag travels in pose_3d.
+        """
+        geometry = 1.0 / (1.0 + float(pose.reprojection_error_px) / 4.0)
+        return float(max(0.35, min(1.0, geometry * max(0.5, pose.bbox_quality))))
+
+    def _publish_detectionless_frame(self, cv_image, image_msg, timestamp):
+        """Run the model-free route with a depth-supplied box, no detector."""
+        frame_id = image_msg.header.frame_id
+        detections = []
+        if self.latest_depth is not None:
+            try:
+                pose = estimate_model_free_pose(
+                    cv_image,
+                    self.camera_info.k if self.camera_info else (),
+                    depth_image=self.latest_depth,
+                    bbox_source='depth_blob',
+                    side_length_m=float(
+                        self.get_parameter('cube_side_length_m').value
+                    ),
+                    maximum_reprojection_error_px=float(
+                        self.get_parameter('max_reprojection_error_px').value
+                    ),
+                    minimum_chroma=self.face_color_minimum_chroma,
+                    minimum_hue_margin_deg=(
+                        self.face_color_minimum_hue_margin_deg
+                    ),
+                )
+            except ModelFreePoseError as error:
+                self.get_logger().debug(f'model-free frame rejected: {error}')
+            else:
+                detections.append({
+                    'class_name': 'cube',
+                    'confidence': self._model_free_confidence(pose),
+                    'box_xyxy': list(pose.bbox_xyxy),
+                    'keypoints_xy': [],
+                    'keypoints_confidence': [],
+                    'pose_3d': self._model_free_pose_dict(
+                        pose, frame_id, timestamp
+                    ),
+                    'pose_evidence': {
+                        'backend': 'color_frontend',
+                        'bbox_source': pose.bbox_source,
+                        'bbox_quality': pose.bbox_quality,
+                        'label_swaps': list(pose.label_swaps),
+                        'visible_faces': list(pose.visible_faces),
+                        'faces': pose.face_evidence,
+                    },
+                })
+        message = String()
+        message.data = json.dumps({
+            'timestamp': timestamp,
+            'model_path': '',
+            'model_sha256': '',
+            'detections': detections,
+        }, ensure_ascii=False)
+        self.publisher.publish(message)
+        return detections
 
     def _apply_model_free_pose(self, cv_image, detection, image_msg, timestamp):
         """Fill pose evidence from the model-free geometry+colour route."""

@@ -23,6 +23,11 @@ backend="${CCC2_PERCEPTION_BACKEND:-color_frontend}"
 # before MoveIt starts (and restores it on exit) so arm poses with an angle mean
 # what they say.
 orientation_ik="${CCC2_ORIENTATION_IK:-1}"
+# One-container mode: no yolo service, no learned model. The perception node runs
+# inside the Lime container with bbox_source=depth_blob.
+no_yolo="${CCC2_NO_YOLO:-0}"
+depth_topic="${CCC2_DEPTH_TOPIC:-/camera/camera/aligned_depth_to_color/image_raw}"
+depth_scale="${CCC2_DEPTH_SCALE:-0.001}"
 kinematics_backup=""
 
 usage() {
@@ -33,6 +38,10 @@ usage() {
     echo "  --evidence-dir Persist logs/debug evidence under PATH on the host."
     echo "  --orientation-ik  Solve IK with orientation too (default on; patches the"
     echo "                 container's kinematics.yaml, restored on exit)."
+    echo "  --no-yolo      Run without the yolo container: depth blob supplies the"
+    echo "                 box and the perception node runs in the Lime container."
+    echo "  --depth-topic  Depth image topic for --no-yolo (default RealSense"
+    echo "                 aligned depth); --depth-scale metres per unit (0.001)."
     echo "  --backend      Pose route: color_frontend (default, no trained model)"
     echo "                 or yolov8-pose (trained keypoints, same as ./bin/ccc)."
     echo "  Env: CCC2_PERCEPTION_BACKEND, CCC2_EVIDENCE_DIR (CCC_EVIDENCE_DIR also read)."
@@ -89,6 +98,25 @@ while (($# > 0)); do
                 exit 2
             fi
             map_file="$2"
+            shift
+            ;;
+        --no-yolo)
+            no_yolo=1
+            ;;
+        --depth-topic)
+            if (($# < 2)); then
+                echo "[ccc2] --depth-topic requires a topic" >&2
+                exit 2
+            fi
+            depth_topic="$2"
+            shift
+            ;;
+        --depth-scale)
+            if (($# < 2)); then
+                echo "[ccc2] --depth-scale requires a number" >&2
+                exit 2
+            fi
+            depth_scale="$2"
             shift
             ;;
         --orientation-ik)
@@ -169,9 +197,19 @@ run mkdir -p "${evidence_dir}"
 echo "[ccc2] evidence: ${evidence_dir}"
 echo "[ccc2] pose route: ${backend}"
 
-echo "[ccc2] starting Lime and YOLO containers"
-started=true
-run "${compose[@]}" up -d --no-build lime_simul_demo_yuu yolo
+if [[ "${no_yolo}" == "1" ]]; then
+    compose+=(-f "${project_dir}/docker-compose.ccc2.yaml")
+    echo "[ccc2] one-container mode: no yolo service, bbox from depth"
+    echo "[ccc2] depth: ${depth_topic} (scale ${depth_scale})"
+    started=true
+    run "${compose[@]}" up -d --no-build lime_simul_demo_yuu
+    build_target=lime_simul_demo_yuu
+else
+    echo "[ccc2] starting Lime and YOLO containers"
+    started=true
+    run "${compose[@]}" up -d --no-build lime_simul_demo_yuu yolo
+    build_target=yolo
+fi
 
 if [[ "${orientation_ik}" == "1" ]]; then
     kinematics_file="/root/turtlebot3_ws/install/turtlebot3_lime_moveit_config/share/turtlebot3_lime_moveit_config/config/kinematics.yaml"
@@ -185,7 +223,7 @@ fi
 
 echo "[ccc2] rebuilding barcode_detector from mounted dev2 source"
 yolo_build_command='set -Eeuo pipefail; source /opt/ros/humble/setup.bash; cd /root/yolo_ws; colcon build --symlink-install --packages-select barcode_detector'
-run "${compose[@]}" exec -T yolo bash -lc "${yolo_build_command}"
+run "${compose[@]}" exec -T "${build_target}" bash -lc "${yolo_build_command}"
 
 # The model-free route resolves colour itself, so the keypoint-path evidence
 # stages stay off for it. For yolov8-pose they remain opt-in behind
@@ -195,13 +233,21 @@ backend_args="-p perception_backend:=${backend} "
 if [[ "${backend}" == "yolov8-pose" && "${CUBE_EVIDENCE_GATE:-0}" == "1" ]]; then
     evidence_args='-p enable_visibility_gate:=true -p enable_face_color_selection:=true '
 fi
+if [[ "${no_yolo}" == "1" ]]; then
+    # no detector: depth blob supplies the box, geometry+colour do the rest
+    backend_args="-p perception_backend:=color_frontend -p bbox_source:=depth_blob "
+    backend_args+="-p depth_topic:=${depth_topic} -p depth_scale_m:=${depth_scale} "
+    perception_service=lime_simul_demo_yuu
+else
+    perception_service=yolo
+fi
 yolo_command="mkdir -p /root/ccc_evidence; source /opt/ros/humble/setup.bash; source /root/yolo_ws/install/setup.bash; exec ros2 run barcode_detector yolo_pose_node --ros-args ${backend_args}${evidence_args}-p debug_image_path:=/root/ccc_evidence/cube_pose_debug.jpg >>/root/ccc_evidence/yolo.log 2>&1"
 printf -v map_file_quoted '%q' "${map_file}"
 navigation_command="mkdir -p /root/ccc_evidence; source /opt/ros/humble/setup.bash; source /project/lib_ws/install/setup.bash; source /root/turtlebot3_ws/install/setup.bash; exec ros2 launch turtlebot3_lime_navigation2 navigation2.launch.py map_yaml_file:=${map_file_quoted} >>/root/ccc_evidence/navigation.log 2>&1"
 moveit_command='mkdir -p /root/ccc_evidence; source /opt/ros/humble/setup.bash; source /project/lib_ws/install/setup.bash; source /root/turtlebot3_ws/install/setup.bash; exec ros2 launch turtlebot3_lime_moveit_config moveit_core.launch.py >>/root/ccc_evidence/moveit.log 2>&1'
 
-echo "[ccc2] starting YOLO (${backend}), Nav2 and MoveIt"
-run "${compose[@]}" exec -T -d yolo bash -lc "${yolo_command}"
+echo "[ccc2] starting perception (${backend}$([[ "${no_yolo}" == "1" ]] && echo ", depth bbox")), Nav2 and MoveIt"
+run "${compose[@]}" exec -T -d "${perception_service}" bash -lc "${yolo_command}"
 run "${compose[@]}" exec -T -d lime_simul_demo_yuu \
     bash -lc "${navigation_command}"
 run "${compose[@]}" exec -T -d lime_simul_demo_yuu \
@@ -210,7 +256,7 @@ run "${compose[@]}" exec -T -d lime_simul_demo_yuu \
 if ! ${dry_run}; then
     sleep 2
     checks=(
-        'yolo:yolo_pose_node:/root/ccc_evidence/yolo.log'
+        "${perception_service}:yolo_pose_node:/root/ccc_evidence/yolo.log"
         'lime_simul_demo_yuu:navigation2.launch.py:/root/ccc_evidence/navigation.log'
         'lime_simul_demo_yuu:moveit_core.launch.py:/root/ccc_evidence/moveit.log'
     )
