@@ -1,0 +1,20 @@
+<?xml version="1.0"?>
+<!--
+  Arm-only URDF for the IK measurement in ../2026-10-20-ik-usage.md.
+
+  The full robot xacro pulls in the base, the camera (realsense2_description) and
+  the gazebo plugins, none of which the arm chain needs and some of which are not
+  installed outside the sim image. This wrapper expands the arm macro alone.
+
+  Usage (from a shell with xacro and PyKDL installed):
+
+      xacro 2026-10-20_arm_only.urdf.xacro \
+        description_dir:=<turtlebot3_lime checkout>/turtlebot3_lime_description \
+        > /tmp/arm.urdf
+      python3 2026-10-20_ik_chain_check.py /tmp/arm.urdf link1 end_effector_link
+-->
+<robot name="lime_arm" xmlns:xacro="http://www.ros.org/wiki/xacro">
+  <xacro:arg name="description_dir" default="/opt/ros/humble/share/turtlebot3_lime_description"/>
+  <xacro:include filename="$(arg description_dir)/urdf/open_manipulator_sara.urdf.xacro"/>
+  <xacro:open_manipulator_sara prefix=""/>
+</robot>
