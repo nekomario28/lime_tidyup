@@ -129,7 +129,14 @@ echo "[ccc] rebuilding barcode_detector from mounted dev2 source"
 yolo_build_command='set -Eeuo pipefail; source /opt/ros/humble/setup.bash; cd /root/yolo_ws; colcon build --symlink-install --packages-select barcode_detector'
 run "${compose[@]}" exec -T yolo bash -lc "${yolo_build_command}"
 
-yolo_command='mkdir -p /root/ccc_evidence; source /opt/ros/humble/setup.bash; source /root/yolo_ws/install/setup.bash; exec ros2 run barcode_detector yolo_pose_node --ros-args -p debug_image_path:=/root/ccc_evidence/cube_pose_debug.jpg >>/root/ccc_evidence/yolo.log 2>&1'
+# Opt-in evidence stages. Off by default so the published /cube_pose_result
+# contract is unchanged; set CUBE_EVIDENCE_GATE=1 to enable the geometric
+# visibility gate and face-colour hypothesis selection together.
+evidence_args=""
+if [[ "${CUBE_EVIDENCE_GATE:-0}" == "1" ]]; then
+    evidence_args='-p enable_visibility_gate:=true -p enable_face_color_selection:=true '
+fi
+yolo_command="mkdir -p /root/ccc_evidence; source /opt/ros/humble/setup.bash; source /root/yolo_ws/install/setup.bash; exec ros2 run barcode_detector yolo_pose_node --ros-args ${evidence_args}-p debug_image_path:=/root/ccc_evidence/cube_pose_debug.jpg >>/root/ccc_evidence/yolo.log 2>&1"
 printf -v map_file_quoted '%q' "${map_file}"
 navigation_command="mkdir -p /root/ccc_evidence; source /opt/ros/humble/setup.bash; source /project/lib_ws/install/setup.bash; source /root/turtlebot3_ws/install/setup.bash; exec ros2 launch turtlebot3_lime_navigation2 navigation2.launch.py map_yaml_file:=${map_file_quoted} >>/root/ccc_evidence/navigation.log 2>&1"
 moveit_command='mkdir -p /root/ccc_evidence; source /opt/ros/humble/setup.bash; source /project/lib_ws/install/setup.bash; source /root/turtlebot3_ws/install/setup.bash; exec ros2 launch turtlebot3_lime_moveit_config moveit_core.launch.py >>/root/ccc_evidence/moveit.log 2>&1'

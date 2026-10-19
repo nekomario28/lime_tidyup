@@ -13,6 +13,7 @@ from cv_bridge import CvBridge
 from ultralytics import YOLO
 
 from .cube_pose_3d import CubePose3DError, estimate_cube_pose_3d
+from .cube_pose_evidence import attach_pose_evidence
 
 
 class YoloPoseNode(Node):
@@ -36,6 +37,12 @@ class YoloPoseNode(Node):
             '/cube_pose_debug_image'
         )
         self.declare_parameter('debug_image_path', '')
+        # Opt-in evidence stages. Both default off so the published contract
+        # and the accepted pose are unchanged unless a caller asks for them.
+        self.declare_parameter('enable_visibility_gate', False)
+        self.declare_parameter('enable_face_color_selection', False)
+        self.declare_parameter('face_color_minimum_chroma', 10.0)
+        self.declare_parameter('face_color_minimum_hue_margin_deg', 8.0)
 
         self.model_path = str(self.get_parameter('model_path').value)
         self.publish_debug_image = bool(
@@ -46,6 +53,18 @@ class YoloPoseNode(Node):
         )
         self.debug_image_path = str(
             self.get_parameter('debug_image_path').value
+        )
+        self.enable_visibility_gate = bool(
+            self.get_parameter('enable_visibility_gate').value
+        )
+        self.enable_face_color_selection = bool(
+            self.get_parameter('enable_face_color_selection').value
+        )
+        self.face_color_minimum_chroma = float(
+            self.get_parameter('face_color_minimum_chroma').value
+        )
+        self.face_color_minimum_hue_margin_deg = float(
+            self.get_parameter('face_color_minimum_hue_margin_deg').value
         )
 
         self.bridge = CvBridge()
@@ -90,6 +109,10 @@ class YoloPoseNode(Node):
             self.get_logger().info(
                 f'publish debug image: {self.debug_image_topic}'
             )
+        self.get_logger().info(
+            f'visibility gate: {self.enable_visibility_gate}, '
+            f'face colour selection: {self.enable_face_color_selection}'
+        )
         if self.debug_image_path:
             self.get_logger().info(
                 f'write debug image: {self.debug_image_path}'
@@ -174,6 +197,40 @@ class YoloPoseNode(Node):
                     detection['pose_3d_debug'] = pose_debug
                     if pose_3d is not None:
                         detection['pose_3d'] = pose_3d
+
+                    detection = attach_pose_evidence(
+                        cv_image,
+                        self.camera_info,
+                        detection,
+                        side_length_m=float(
+                            self.get_parameter(
+                                'cube_side_length_m'
+                            ).value
+                        ),
+                        frame_id=(
+                            self.camera_info.header.frame_id
+                            or msg.header.frame_id
+                        ),
+                        timestamp=now,
+                        enable_visibility_gate=self.enable_visibility_gate,
+                        enable_face_color_selection=(
+                            self.enable_face_color_selection
+                        ),
+                        minimum_keypoint_confidence=float(
+                            self.get_parameter(
+                                'keypoint_confidence'
+                            ).value
+                        ),
+                        maximum_reprojection_error_px=float(
+                            self.get_parameter(
+                                'max_reprojection_error_px'
+                            ).value
+                        ),
+                        minimum_chroma=self.face_color_minimum_chroma,
+                        minimum_hue_margin_deg=(
+                            self.face_color_minimum_hue_margin_deg
+                        ),
+                    )
 
                     detections.append(detection)
 

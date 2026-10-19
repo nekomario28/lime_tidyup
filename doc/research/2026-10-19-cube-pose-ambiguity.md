@@ -66,6 +66,26 @@ Two consequences follow directly from the 0.0 px residual:
   hypotheses, score them by predicted-versus-observed visible face colour, and
   report the margin rather than a single answer.
 
+## Implemented from this decision
+
+- `barcode_detector/cube_visibility.py` — vertex visibility from the pose, with
+  the `observed / unmeasured / occluded / contradicted` split, so a confident
+  detection of a hidden corner is reported instead of averaged into the pose.
+- `barcode_detector/cube_pose_hypotheses.py` — the measured hypothesis set,
+  enumerating only the symmetries that keep hidden corners hidden, and the
+  colour each visible slot would have to show under each of them.
+- `barcode_detector/cube_face_colors.py` — CIELAB hue classification of a face
+  sampled at its nine sticker centres, with an explicit abstain: shading is
+  allowed to change lightness, and a patch between two anchors or with no
+  chroma yields `None` rather than a nearest-neighbour guess.
+- `barcode_detector/cube_pose_evidence.py` — the assembly, used by
+  `yolo_pose_node` behind two parameters that are **off by default**
+  (`enable_visibility_gate`, `enable_face_color_selection`), so the published
+  `/cube_pose_result` contract is unchanged unless a caller opts in. `bin/ccc`
+  exposes both through `CUBE_EVIDENCE_GATE=1`.
+- 49 unittest cases cover the three modules and the assembly, including a guard
+  that the vertex sign order matches the PnP contract's vertex order.
+
 ## What this does not claim
 
 - No colour classifier accuracy, no real lighting/material measurement; the

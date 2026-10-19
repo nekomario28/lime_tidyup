@@ -219,15 +219,39 @@ def enumerate_pose_hypotheses(
         minimum_keypoint_confidence=minimum_confidence,
         maximum_reprojection_error_px=maximum_reprojection_error_px,
     )
-    base_rotation = _quat_to_matrix(base.orientation_xyzw)
+    return hypotheses_from_pose(
+        base.translation_m,
+        base.orientation_xyzw,
+        side_length_m=side_length_m,
+        face_colors=colors,
+    )
+
+
+def hypotheses_from_pose(
+    position_m,
+    orientation_xyzw,
+    *,
+    side_length_m=CUBE_SIDE_M,
+    face_colors=None,
+):
+    """Return the symmetry hypotheses of an already-solved pose.
+
+    Used by the runtime so the visibility-consistent pose and the colour
+    hypotheses share one solve and cannot disagree about the base pose.
+    """
+    colors = dict(STANDARD_FACE_COLORS if face_colors is None else face_colors)
+    missing = [name for name in FACE_NAMES if name not in colors]
+    if missing:
+        raise CubePose3DError(f'missing face colours: {missing}')
+    base_rotation = _quat_to_matrix(orientation_xyzw)
     hidden = set(_hidden_vertices(
-        base.translation_m, base.orientation_xyzw,
+        position_m, orientation_xyzw,
         side_length_m=side_length_m,
     ))
     signs = _vertex_signs()
     hidden_signs = {signs[index] for index in hidden}
     slots = visible_face_names(
-        base.translation_m, base.orientation_xyzw,
+        position_m, orientation_xyzw,
         side_length_m=side_length_m,
     )
 
@@ -244,7 +268,7 @@ def enumerate_pose_hypotheses(
         )
         hypotheses.append(
             PoseHypothesis(
-                pose=(base.translation_m, quaternion),
+                pose=(tuple(float(v) for v in position_m), quaternion),
                 symmetry=symmetry,
                 predicted_colors=predicted,
                 visible_slots=slots,

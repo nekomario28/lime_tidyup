@@ -99,6 +99,20 @@ class VisibleVertexMaskTest(unittest.TestCase):
             )
 
 
+class CanonicalOrderTest(unittest.TestCase):
+    """The module's vertex order must be the PnP contract's vertex order."""
+
+    def test_sign_order_matches_the_pnp_vertex_order(self):
+        from barcode_detector.cube_pose_3d import _cube_vertices
+
+        half = CANONICAL_VERTEX_SIGNS and 0.057 / 2.0
+        expected = tuple(
+            tuple(int(round(value / half)) for value in vertex)
+            for vertex in _cube_vertices(0.057)
+        )
+        self.assertEqual(expected, CANONICAL_VERTEX_SIGNS)
+
+
 class VertexClassificationTest(unittest.TestCase):
     """Contradictions stay visible instead of being smoothed away."""
 
