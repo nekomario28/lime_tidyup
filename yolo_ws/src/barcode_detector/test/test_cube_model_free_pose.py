@@ -19,6 +19,7 @@ import unittest
 from pathlib import Path
 
 import cv2
+import numpy as np
 
 from barcode_detector.cube_model_free_pose import (
     ModelFreePoseError,
@@ -84,6 +85,73 @@ class ModelFreePoseTest(unittest.TestCase):
         self.assertEqual(first.orientation_xyzw, second.orientation_xyzw)
         self.assertEqual(first.label_swaps, second.label_swaps)
         self.assertEqual(first.visible_face_colors, second.visible_face_colors)
+
+    def test_ambiguity_is_reported_instead_of_a_pose_being_chosen(self):
+        """Two relabellings fitting means handedness is undetermined."""
+        from barcode_detector.cube8_pnp import CameraModel
+        from barcode_detector.cube8_two_face_color_frontend import (
+            recover_two_face_view_local_from_bgr,
+        )
+        from barcode_detector.cube8_view_local_pnp import (
+            Cube8PnpError,
+            estimate_view_local_pose_with_label_search,
+        )
+
+        image = _frame('frame_fill_light.png')
+        observation = recover_two_face_view_local_from_bgr(
+            image, DETECTOR_BOX
+        )
+        camera = CameraModel(
+            k=CAMERA_MATRIX, d=(0.0, 0.0, 0.0, 0.0, 0.0)
+        )
+        points = observation.geometry.points
+        # The 4 px gate leaves one relabelling; a 40 px gate also admits the
+        # mirrored one, which must be refused rather than picked.
+        with self.assertRaises(Cube8PnpError) as caught:
+            estimate_view_local_pose_with_label_search(
+                points, camera, side_length_m=0.057,
+                maximum_reprojection_error_px=40.0,
+            )
+        self.assertIn('ambiguous', str(caught.exception))
+
+    def test_silhouette_snapping_pulls_inset_corners_onto_the_outline(self):
+        """The colour quads are inset; snapping must close that gap."""
+        from barcode_detector.cube8_two_face_color_frontend import (
+            TwoFaceColorFrontendConfig,
+            snap_quads_to_silhouette,
+        )
+
+        outline = np.array(
+            [[120, 90], [280, 90], [345, 200], [280, 310], [120, 310], [55, 200]],
+            dtype=np.int32,
+        )
+        frame = np.full((400, 400, 3), 40, dtype=np.uint8)
+        cv2.fillPoly(frame, [outline], (200, 200, 200))
+        search_box = (40.0, 70.0, 360.0, 330.0)
+        config = TwoFaceColorFrontendConfig()
+        centre = np.array([200.0, 200.0])
+        inset = 9.0
+        quad = []
+        for target in outline[:4]:
+            direction = np.array(target, dtype=float) - centre
+            quad.append(tuple(np.array(target, dtype=float)
+                              - direction / np.linalg.norm(direction) * inset))
+        diagonal = math.hypot(search_box[2] - search_box[0],
+                              search_box[3] - search_box[1])
+        snapped = snap_quads_to_silhouette(
+            frame, {'search_box': search_box, 'vertices': {'y': tuple(quad)}},
+            config, diagonal,
+        )
+        self.assertIsNotNone(snapped)
+
+        def worst(vertices):
+            return max(
+                min(math.hypot(v[0] - t[0], v[1] - t[1]) for t in outline)
+                for v in vertices
+            )
+
+        self.assertLess(worst(snapped['y']), worst(quad))
+        self.assertLess(worst(snapped['y']), 3.0)
 
     def test_an_empty_frame_is_refused(self):
         image = _frame('frame_fill_light.png') * 0
