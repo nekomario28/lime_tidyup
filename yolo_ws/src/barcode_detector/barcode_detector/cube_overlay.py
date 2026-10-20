@@ -236,7 +236,7 @@ def draw_cube_overlay(
 
 
 def overlay_is_blank(image):
-    """True when nothing was drawn: a flat frame with a single colour."""
+    """Report whether nothing was drawn: a flat frame with a single colour."""
     array = np.asarray(image)
     if array.size == 0:
         return True

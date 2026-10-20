@@ -16,6 +16,20 @@ from pymoveit2 import MoveIt2State
 adjust_plus = 1.1  
 adjust_minus = 1.25
 
+def _frame_pose(tf_buffer, target_frame, source_frame):
+    """Return (position, quaternion) of source expressed in target, or (None, None)."""
+    if tf_buffer is None or not source_frame:
+        return None, None
+    try:
+        tf = tf_buffer.lookup_transform(target_frame, source_frame,
+                                        rclpy_time_now())
+    except Exception:  # noqa: BLE001 - a missing frame is normal here
+        return None, None
+    t = tf.transform.translation
+    q = tf.transform.rotation
+    return (t.x, t.y, t.z), (q.x, q.y, q.z, q.w)
+
+
 def rclpy_time_now():
     """Latest available transform time (no clock sync needed in sim)."""
     from rclpy.time import Time
@@ -92,6 +106,25 @@ class ManipulatorNetwork(SubNet):
         value = self.get_value('joint_stat')
         return self.move_joint(*list(map(operator.add, value, *args)))
 
+    @staticmethod
+    def _link_position_relative(tf_buffer, link):
+        """Position of a robot link in base_link."""
+        position, _ = _frame_pose(tf_buffer, 'base_link', link)
+        return position
+
+    @staticmethod
+    def _tool_axis(tf_buffer):
+        """Tool (gripper approach) axis in base_link."""
+        ee, _ = _frame_pose(tf_buffer, 'base_link', 'end_effector_link')
+        wrist, _ = _frame_pose(tf_buffer, 'base_link', 'link7')
+        if ee is None or wrist is None:
+            return None
+        axis = [ee[i] - wrist[i] for i in range(3)]
+        norm = math.sqrt(sum(component * component for component in axis))
+        if norm < 1e-9:
+            return None
+        return tuple(component / norm for component in axis)
+
     @actor
     def arm_to_cube(
         self,
@@ -101,6 +134,7 @@ class ManipulatorNetwork(SubNet):
         yaw_deg=0.0,
         minimum_confidence=0.30,
         require_color_fixed=True,
+        grasp_at_fingers=True,
     ):
         """Aim the arm at the detected cube, with an explicit orientation.
 
@@ -166,11 +200,43 @@ class ManipulatorNetwork(SubNet):
             tf.transform.translation.z,
         ])
         point_base = rotation @ point_camera + translation
-        target = (
-            float(point_base[0]),
-            float(point_base[1]),
-            float(point_base[2]) + float(standoff_m),
-        )
+
+        # Aim the *fingertips* at the cube, not the wrist. pymoveit2 moves
+        # end_effector_link, which on this URDF sits 11.5 cm past link7 while the
+        # finger pads sit at 7.1 cm, so a naive target puts the palm on the cube
+        # (measured: wrong by 4.4 cm along the tool axis). The offset is fixed by
+        # the mechanism, so read it from TF once per call instead of hard-coding.
+        offset_tool = 0.0
+        if grasp_at_fingers:
+            ee = self._link_position_relative(tf_buffer, 'end_effector_link')
+            left = self._link_position_relative(tf_buffer, 'gripper_left_link')
+            right = self._link_position_relative(tf_buffer, 'gripper_right_link')
+            if ee is not None and left is not None and right is not None:
+                grasp_point = ((left[0] + right[0]) / 2.0,
+                               (left[1] + right[1]) / 2.0,
+                               (left[2] + right[2]) / 2.0)
+                # vector from the finger midpoint to end_effector_link
+                offset = (ee[0] - grasp_point[0], ee[1] - grasp_point[1],
+                          ee[2] - grasp_point[2])
+                tool_axis = self._tool_axis(tf_buffer)
+                if tool_axis is not None:
+                    along = sum(offset[i] * tool_axis[i] for i in range(3))
+                    offset_tool = float(along)
+                    print(f'arm_to_cube: finger->ee offset {offset_tool:.4f} m '
+                          f'along the tool axis')
+                target = (
+                    float(point_base[0]) + offset[0],
+                    float(point_base[1]) + offset[1],
+                    float(point_base[2]) + offset[2],
+                )
+            else:
+                print('arm_to_cube: finger links unavailable; using the ee pose')
+                target = (float(point_base[0]), float(point_base[1]),
+                          float(point_base[2]))
+        else:
+            target = (float(point_base[0]), float(point_base[1]),
+                      float(point_base[2]))
+        target = (target[0], target[1], target[2] + float(standoff_m))
         angle = [
             radians(float(roll_deg)),
             radians(float(pitch_deg)),
@@ -178,7 +244,8 @@ class ManipulatorNetwork(SubNet):
         ]
         print(f'arm_to_cube: cube in base_link='
               f'({point_base[0]:.3f}, {point_base[1]:.3f}, {point_base[2]:.3f})'
-              f' target=({target[0]:.3f}, {target[1]:.3f}, {target[2]:.3f})'
+              f' fingertip_target=({target[0]:.3f}, {target[1]:.3f},'
+              f' {target[2]:.3f}) ee_offset={offset_tool:.4f} m'
               f' rpy_deg=({float(roll_deg):.0f}, {float(pitch_deg):.0f},'
               f' {float(yaw_deg):.0f})')
         self.run_actor('arm_pose', target, angle)

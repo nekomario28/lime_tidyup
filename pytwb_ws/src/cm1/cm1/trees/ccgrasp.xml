@@ -1,0 +1,32 @@
+<root>
+    <BehaviorTree ID="cube_search_and_grasp">
+        <!--
+            Find -> approach -> aim -> lower -> close, with no ArmHome between the
+            close and the lift, so the grasp can be attached while the fingers are
+            still around the cube (this project's sim convention is LinkAttacher).
+        -->
+        <Sequence name="main">
+            <SearchCube name="search_cube" threshold="[0.30]"/>
+            <TakeAim name="take_aim_small_target" threshold="[0.30]"
+                     turn_speed="[0.15]" center_tolerance="[12.0]"/>
+            <GoFrontCube name="go_front_cube" threshold="[0.30]"
+                         stop_distance="[0.28]" forward_speed="[0.12]"
+                         turn_speed="[0.15]" target_offset_px="[40]"
+                         use_pose_3d="[1]" depth_sample_count="[1]"
+                         depth_roi_fraction="[0.35]" depth_minimum_valid_ratio="[0.50]"
+                         depth_maximum_mad_m="[0.03]" depth_maximum_spread_m="[0.04]"
+                         cube_side_length_m="[0.057]"
+                         geometry_minimum_scale="[0.50]" geometry_maximum_scale="[2.20]"
+                         temporal_window_size="[5]" temporal_required_count="[3]"
+                         temporal_center_distance_px="[60]"/>
+            <TakeAim name="take_aim_before_grasp" threshold="[0.30]"
+                     turn_speed="[0.10]" center_tolerance="[10.0]"/>
+            <!-- lower onto the cube: 2 cm standoff instead of the 12 cm aim pose -->
+            <ArmToCube name="arm_to_cube" standoff="0.0" roll="180.0"
+                       pitch="0.0" yaw="0.0" minimum_confidence="0.30"/>
+            <Open name="open_gripper"/>
+            <Close name="close_gripper"/>
+            <Sleep name="settle" time="[2.0]"/>
+        </Sequence>
+    </BehaviorTree>
+</root>

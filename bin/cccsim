@@ -1,0 +1,122 @@
+#!/usr/bin/env bash
+# Bring up the cube-grasp simulation and open the cm1 prompt.
+#
+# Same shape as bin/ccc: one command from the host, then type a tree name at the
+# prompt. Everything below this line runs inside the Lime container, because the
+# ROS setup, the Robotis workspace and the Gazebo plugin paths all live there.
+#
+# The order matters and each step exists for a measured reason:
+#   1. gzserver with a world that contains the cameras. The robot's own URDF
+#      declares no camera, and the RealSense plugin cannot find one, so images
+#      only exist because this world provides two camera models.
+#   2. robot_state_publisher built with use_sim:=true. The upstream launch passes
+#      no xacro mappings, so gazebo_ros2_control was handed the *hardware*
+#      plugin class and no controller ever loaded.
+#   3. controllers spawned explicitly (the spawn step is what configures them).
+#   4. static TF base_link -> sim camera frame so a pose expressed in the image
+#      frame transforms correctly; without it ArmToCube aimed at the wrong point.
+#   5. perception with bbox_source=colour_blob. depth_blob cannot be used here:
+#      the depth image's near half is invalid in this sim camera.
+#   6. cm1 registered once in /root/pytwb_ws, then ONE long-lived `python3 cm1`
+#      started in /root/pytwb_ws/src with stdin kept open. Trees are sent to that
+#      stdin; restarting cm1 per tree re-registers the subsystems and hangs.
+set -Eeo pipefail
+
+usage() {
+    cat <<'USAGE'
+Usage: ./bin/cccsim [--dry-run] [--keep] [--tree NAME] [--record DIR]
+                    [--cube-distance M] [--no-moveit] [--help]
+
+  --dry-run         Print what would run, start nothing.
+  --keep            Leave Gazebo and the stack running on exit.
+  --tree NAME       Run this tree automatically, then attach and lift the cube.
+                    Without it the cm1 prompt is opened for interactive use.
+  --record          Save camera + third-person JPEG frames under the repository
+                    (yolo_ws/log/cccsim/media/<timestamp>), which is mounted.
+  --cube-distance   Where the cube sits on the floor ahead, in metres (1.0).
+  --no-moveit       Skip move_group (arm commands will fail).
+USAGE
+}
+
+dry_run=false
+keep=false
+tree=""
+record_dir=""
+cube_distance="1.0"
+start_moveit=true
+
+while (($# > 0)); do
+    case "$1" in
+        --dry-run) dry_run=true ;;
+        --keep) keep=true ;;
+        --tree) tree="${2:?--tree needs a name}"; shift ;;
+        --record) record_dir="yolo_ws/log/cccsim/media/$(date -u +%Y%m%dT%H%M%SZ)"; shift ;;
+        --cube-distance) cube_distance="${2:?--cube-distance needs metres}"; shift ;;
+        --no-moveit) start_moveit=false ;;
+        -h|--help) usage; exit 0 ;;
+        *) echo "[cccsim] unknown option: $1" >&2; usage >&2; exit 2 ;;
+    esac
+    shift
+done
+
+if ${dry_run}; then
+    cat <<DRY
+[cccsim] would run, inside the Lime container:
+  1  gzserver --verbose -s libgazebo_ros_init.so -s libgazebo_ros_factory.so sim/world/cube_world.world
+  2  ros2 launch sim/rsp_sim.launch.py            (use_sim:=true -> gazebo_ros2_control/GazeboSystem)
+  3  ros2 run gazebo_ros spawn_entity.py -topic robot_description -entity turtlebot3_lime_system
+  4  spawner joint_state_broadcaster / arm_controller / gripper_controller
+  5  ros2 run tf2_ros static_transform_publisher <computed> base_link sim_camera_color_optical_frame
+  6  $(${start_moveit} && echo 'ros2 launch turtlebot3_lime_moveit_config move_group.launch.py use_sim:=true start_rviz:=false' || echo 'move_group skipped')
+  7  python3 -m barcode_detector.yolo_pose_node  (-p perception_backend:=color_frontend -p bbox_source:=colour_blob)
+  8  sim/spawn_cube.py ${cube_distance} 0.0
+  9  ${record_dir:+python3 sim/record_frames.py ${record_dir}}
+ 10  cd /root/pytwb_ws && printf 'create cm1\nY\nexit\n' | pytwb
+ 11  cd /root/pytwb_ws/src && python3 cm1      (one server; trees go to its stdin)
+ 12  ${tree:+echo '${tree}' >&3, then attach at the fingertips + cchair lift}${tree:-interactive prompt}
+DRY
+    exit 0
+fi
+
+# ---------------------------------------------------------------------------
+# everything below runs inside the container
+# ---------------------------------------------------------------------------
+docker_bin="${DOCKER:-docker}"
+image="${CCCSIM_IMAGE:-course_lime-image_yuu:sim}"
+container="${CCCSIM_CONTAINER:-limesim}"
+repo_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
+
+if ! ${docker_bin} ps --format '{{.Names}}' | grep -Fxq "${container}"; then
+    echo "[cccsim] starting ${container} from ${image}"
+    ${docker_bin} run -d --name "${container}" --network host --ipc host \
+        -e DISPLAY="${CCCSIM_DISPLAY:-:99}" -e HOME=/root \
+        -v "${repo_dir}:/root/repo" \
+        "${image}" bash -lc '
+            if ! command -v Xvfb >/dev/null; then
+                apt-get update -qq || true
+                DEBIAN_FRONTEND=noninteractive apt-get install -y -qq --no-install-recommends \
+                    xvfb x11-utils libgl1-mesa-dri || echo "[cccsim] xvfb install failed"
+            fi
+            (nohup Xvfb :99 -screen 0 1280x960x24 -nolisten tcp >/tmp/xvfb.log 2>&1 &)
+            sleep 3
+            xdpyinfo -display :99 >/dev/null 2>&1 && echo "[cccsim] xvfb up" || echo "[cccsim] xvfb DOWN"
+            ln -sfn /root/repo/pytwb_ws /root/pytwb_ws
+            ln -sfn /root/repo/practice_ws /root/practice_ws
+            ln -sfn /root/repo/bin /root/bin
+            ln -sfn /root/repo/yolo_ws /root/yolo_ws
+            sleep infinity'
+    sleep 6
+fi
+
+args=(--cube-distance "${cube_distance}")
+${start_moveit} || args+=(--no-moveit)
+[[ -n "${tree}" ]] && args+=(--tree "${tree}")
+[[ -n "${record_dir}" ]] && args+=(--record "${record_dir}")
+${keep} && args+=(--keep)
+
+# A tree run is scripted: only keep stdin. The interactive prompt needs a TTY.
+if [[ -n "${tree}" ]]; then
+    exec ${docker_bin} exec -i "${container}" bash /root/repo/sim/stack.sh "${args[@]}"
+else
+    exec ${docker_bin} exec -it "${container}" bash /root/repo/sim/stack.sh "${args[@]}"
+fi

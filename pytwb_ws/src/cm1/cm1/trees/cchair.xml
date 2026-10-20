@@ -1,0 +1,9 @@
+<root>
+    <BehaviorTree ID="cube_arm_home">
+        <!-- Lift test: with the cube attached, going home carries it. -->
+        <Sequence name="main">
+            <ArmHome name="arm_home"/>
+            <Sleep name="wait" time="[3.0]"/>
+        </Sequence>
+    </BehaviorTree>
+</root>

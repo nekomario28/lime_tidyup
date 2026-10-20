@@ -234,7 +234,29 @@ def _bootstrap_yz_model(hsv, lab, bbox, config):
         _FACE_COLORS,
         key=lambda name: (-support[name], name),
     )
-    selected = {"y": ranked[0], "z": ranked[1]}
+    # Pick two faces that are actually different regions. Red and orange sit
+    # within the hue tolerance of each other, so both seeds can cover the *same*
+    # face; treating that as two faces makes the two-face geometry degenerate
+    # (measured: identical quads -> "projective line family is rank-deficient").
+    overlap_limit = 0.30
+    first = next((name for name in ranked if support[name] > 0), None)
+    if first is None:
+        raise Cube8TwoFaceColorError("no face-colour seed support at all")
+    second = None
+    for name in ranked:
+        if name == first or support[name] == 0:
+            continue
+        overlap = int(np.count_nonzero(seed[first] & seed[name]))
+        smaller = max(1, min(support[first], support[name]))
+        if overlap / float(smaller) > overlap_limit:
+            continue
+        second = name
+        break
+    if second is None:
+        raise Cube8TwoFaceColorError(
+            "no second face distinct from the first colour region"
+        )
+    selected = {"y": first, "z": second}
     minimum_support = max(
         1, int(
             math.ceil(

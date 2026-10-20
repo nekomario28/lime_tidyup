@@ -32,7 +32,7 @@ from dataclasses import dataclass
 import numpy as np
 
 #: Bbox sources this module knows.
-BOX_SOURCES = ('detector', 'depth_blob', 'colour_pair')
+BOX_SOURCES = ('detector', 'depth_blob', 'colour_blob', 'colour_pair')
 
 
 class BboxSourceError(ValueError):
@@ -57,6 +57,14 @@ class DepthBlobConfig:
     centre_band_fraction: float = 0.75
     close_kernel_px: int = 5
     margin_fraction: float = 0.12
+    #: Remove the supporting surface before blob detection. A cube standing on
+    #: a table is only a few centimetres closer than the surface around it, so a
+    #: pure distance band merges the two into one blob (measured: the floor and
+    #: the cube formed a single full-ROI component). Off by default; the
+    #: measured regression test assumes a plain distance band.
+    plane_tolerance_m: float = 0.0
+    #: Rows of the ROI used to estimate the supporting surface.
+    plane_row_fraction: float = 0.25
 
     def validate(self) -> None:
         """Reject a configuration that cannot accept anything."""
@@ -90,6 +98,10 @@ class DepthBlobConfig:
             raise BboxSourceError('aspect band is invalid')
         if self.maximum_depth_spread_m <= 0.0:
             raise BboxSourceError('depth spread must be positive')
+        if self.plane_tolerance_m < 0.0:
+            raise BboxSourceError('plane tolerance must not be negative')
+        if not 0.0 < self.plane_row_fraction <= 1.0:
+            raise BboxSourceError('plane row fraction must be in (0,1]')
 
 
 @dataclass(frozen=True)
@@ -140,6 +152,32 @@ def depth_blob_bbox(
         & (window >= box_config.minimum_range_m)
         & (window <= box_config.maximum_range_m)
     )
+
+    if box_config.plane_tolerance_m > 0.0:
+        # Estimate the supporting surface per row from the nearest rows below the
+        # objects (a robust median ignores the objects themselves), then keep the
+        # samples that stand out of it towards the camera.
+        rows = window.shape[0]
+        start = int(rows * (1.0 - box_config.plane_row_fraction))
+        surface = np.full(rows, np.nan, dtype=np.float32)
+        for row in range(rows):
+            values = window[row][finite[row]]
+            if values.size:
+                surface[row] = float(np.median(values))
+        if not np.isfinite(surface[start:]).all():
+            surface[start:] = np.nanmedian(surface[start:])
+        surface = np.where(np.isfinite(surface), surface,
+                           np.nanmedian(surface))
+        # extend the surface rows downwards so the whole ROI has an estimate
+        running = surface[start]
+        for row in range(start - 1, -1, -1):
+            if not np.isfinite(surface[row]):
+                surface[row] = running
+        for row in range(start, rows):
+            surface[row] = surface[start]
+        tolerance = float(box_config.plane_tolerance_m)
+        band = band & (window < (surface[:, None] - tolerance))
+
     mask = band.astype(np.uint8) * 255
     kernel = np.ones(
         (max(1, int(box_config.close_kernel_px)),
@@ -265,6 +303,82 @@ def detector_bbox(box_xyxy, *, quality=1.0):
     )
 
 
+# A 57 mm cube at 1 m on this camera (848x480, 87 deg HFOV) covers ~576 px of
+# saturated hue, i.e. 0.0014 of the frame: the old 0.0015 floor sat just above
+# that and rejected the cube at exactly the range the approach starts from
+# (measured in the sim: 576 px blob refused). 0.0008 keeps single-pixel noise
+# out while covering out to ~1.35 m.
+MINIMUM_AREA_FRACTION = 0.0008
+
+
+def colour_blob_bbox(
+    image_bgr,
+    *,
+    minimum_area_fraction=MINIMUM_AREA_FRACTION,
+    maximum_area_fraction=0.25,
+    margin_fraction=0.25,
+):
+    """Return the box of the largest distinctly coloured region.
+
+    For *approach* the tree needs a box and a confidence, not a pose, and at a
+    metre the cube shows one face whose colour is unambiguous against a dark
+    floor (measured: the two-face pose needs ~250 px and cannot be had at that
+    range, but the colour region is still cleanly separable). This is the
+    single-region counterpart of the two-face frontend: it refuses a surface
+    that fills the frame and needs a distinct hue, not a detected object model.
+    """
+    import cv2
+
+    image = np.asarray(image_bgr)
+    if image.ndim != 3 or image.shape[2] != 3 or image.size == 0:
+        raise BboxSourceError('colour blob needs an HxWx3 BGR image')
+    height, width = image.shape[:2]
+    hsv = cv2.cvtColor(image, cv2.COLOR_BGR2HSV)
+    frame_area = float(height * width)
+    best = None
+    for label, centre in (('red', 3.0), ('orange', 16.0), ('yellow', 30.0),
+                          ('green', 60.0), ('blue', 110.0)):
+        hue = hsv[:, :, 0].astype(np.float32)
+        saturation = hsv[:, :, 1]
+        value = hsv[:, :, 2]
+        distance = np.minimum(np.abs(hue - centre), 180.0 - np.abs(hue - centre))
+        mask = ((saturation >= 90) & (value >= 40) &
+                (distance <= 12.0)).astype(np.uint8) * 255
+        # close over the black sticker grooves so a face is one region
+        mask = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, np.ones((11, 11), np.uint8))
+        count, labels, stats, _ = cv2.connectedComponentsWithStats(mask, connectivity=8)
+        if count < 2:
+            continue
+        index = 1 + int(np.argmax(stats[1:, cv2.CC_STAT_AREA]))
+        area = int(stats[index, cv2.CC_STAT_AREA])
+        fraction = area / frame_area
+        if not (minimum_area_fraction <= fraction <= maximum_area_fraction):
+            continue
+        left = int(stats[index, cv2.CC_STAT_LEFT])
+        top = int(stats[index, cv2.CC_STAT_TOP])
+        box_width = int(stats[index, cv2.CC_STAT_WIDTH])
+        box_height = int(stats[index, cv2.CC_STAT_HEIGHT])
+        if box_width <= 0 or box_height <= 0:
+            continue
+        aspect = box_width / float(box_height)
+        if not 0.4 <= aspect <= 3.0:
+            continue
+        if best is None or area > best['area']:
+            best = {'label': label, 'area': area, 'box': (left, top,
+                    left + box_width, top + box_height), 'fraction': fraction}
+    if best is None:
+        raise BboxSourceError('no distinct colour region passed the rules')
+    margin = margin_fraction * max(best['box'][2] - best['box'][0],
+                                   best['box'][3] - best['box'][1])
+    box = (max(0.0, best['box'][0] - margin), max(0.0, best['box'][1] - margin),
+           min(float(width), best['box'][2] + margin),
+           min(float(height), best['box'][3] + margin))
+    quality = min(1.0, 0.4 + 10.0 * best['fraction'])
+    return BboxResult(box_xyxy=box, source='colour_blob', quality=float(quality),
+                      detail={'colour': best['label'], 'area_px': best['area'],
+                              'area_fraction': round(best['fraction'], 5)})
+
+
 def choose_bbox(
     source,
     *,
@@ -273,6 +387,7 @@ def choose_bbox(
     depth_image=None,
     depth_config=None,
     roi_xyxy=None,
+    image_bgr=None,
 ):
     """Dispatch to one bbox source, keeping the fail-closed behaviour."""
     if source not in BOX_SOURCES:
@@ -281,6 +396,10 @@ def choose_bbox(
         if detector_box is None:
             raise BboxSourceError('detector box required for source "detector"')
         return detector_bbox(detector_box, quality=detector_quality)
+    if source == 'colour_blob':
+        if image_bgr is None:
+            raise BboxSourceError('image required for source "colour_blob"')
+        return colour_blob_bbox(image_bgr)
     if source == 'depth_blob':
         if depth_image is None:
             raise BboxSourceError('depth image required for source "depth_blob"')

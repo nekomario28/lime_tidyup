@@ -292,5 +292,5 @@ def observe_face_colors(
 
 
 def face_color_labels():
-    """The anchor labels a caller may see, in deterministic order."""
+    """Return the anchor labels a caller may see, in deterministic order."""
     return tuple(sorted(REFERENCE_LAB))

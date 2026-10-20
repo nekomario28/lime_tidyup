@@ -1,0 +1,24 @@
+<root>
+    <BehaviorTree ID="cube_floor_grasp_1m">
+        <!--
+            Cube on the floor ~1 m ahead. Approach with a bounded forward walk
+            instead of GoFrontCube: the RGB-D confirmation needs a depth image
+            whose near half is invalid in this sim camera, so the distance gate
+            would never pass. The grasp itself is the production posture
+            (Hirou_Pose + 0.15 m walk + Close), not pose_3d.
+        -->
+        <Sequence name="main">
+            <SearchCube name="search_cube" threshold="[0.30]"/>
+            <TakeAim name="take_aim_far" threshold="[0.30]"
+                     turn_speed="[0.20]" center_tolerance="[15.0]"/>
+            <Walk name="approach_55cm" distance="[0.55]"/>
+            <TakeAim name="take_aim_near" threshold="[0.30]"
+                     turn_speed="[0.10]" center_tolerance="[10.0]"/>
+            <Open name="open_gripper"/>
+            <Hirou_Pose name="hirou_pose"/>
+            <Walk name="final_15cm" distance="[0.15]"/>
+            <Close name="close_gripper"/>
+            <Sleep name="settle" time="[2.0]"/>
+        </Sequence>
+    </BehaviorTree>
+</root>

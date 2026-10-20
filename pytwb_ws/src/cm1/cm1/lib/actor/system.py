@@ -1302,7 +1302,6 @@ class Tb3ManipulatorSystem(SubSystem):
             callback_group=cg,
 #            follow_joint_trajectory_action_name="gripper_trajectory_controller/follow_joint_trajectory",
 #            gripper_command_action_name="gripper_action_controller/gripper_cmd",
-            follow_joint_trajectory_action_name="arm_controller/follow_joint_trajectory",
             gripper_command_action_name="gripper_controller/gripper_cmd",
             use_move_group_action=True,
         )

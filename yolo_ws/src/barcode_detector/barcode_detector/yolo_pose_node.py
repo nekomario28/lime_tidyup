@@ -18,6 +18,7 @@ except Exception:  # pragma: no cover - absence is a supported configuration
     YOLO = None
 
 from .cube_pose_3d import CubePose3DError, estimate_cube_pose_3d
+from .cube_bbox_source import BboxSourceError, choose_bbox
 from .cube_model_free_pose import (
     ModelFreePoseError,
     estimate_model_free_pose,
@@ -63,6 +64,11 @@ class YoloPoseNode(Node):
         self.declare_parameter('bbox_source', 'detector')
         self.declare_parameter('depth_topic', '')
         self.declare_parameter('depth_scale_m', 0.001)
+        # Normalised perception ROI for the depth blob ("x0,y0,x1,y1" in 0..1).
+        # The arm is inside the same working-distance band as the cube, so the
+        # two merge into one blob unless the search is bounded; a real
+        # deployment bounds it the same way.
+        self.declare_parameter('bbox_roi', '')
 
         self.model_path = str(self.get_parameter('model_path').value)
         self.publish_debug_image = bool(
@@ -92,6 +98,9 @@ class YoloPoseNode(Node):
         self.bbox_source = str(self.get_parameter('bbox_source').value)
         self.depth_topic = str(self.get_parameter('depth_topic').value)
         self.depth_scale_m = float(self.get_parameter('depth_scale_m').value)
+        self.bbox_roi = self._parse_roi(
+            str(self.get_parameter('bbox_roi').value)
+        )
         self.latest_depth = None
         if self.bbox_source == 'depth_blob':
             if not self.depth_topic:
@@ -108,10 +117,8 @@ class YoloPoseNode(Node):
         # Load the detector only when the route needs it: with bbox_source
         # depth_blob and backend color_frontend nothing here uses it, and the
         # module must run in an image without ultralytics.
-        needs_detector = not (
-            self.perception_backend == 'color_frontend'
-            and self.bbox_source == 'depth_blob'
-        )
+        # The detector is only needed when it supplies the box itself.
+        needs_detector = self.bbox_source == 'detector'
         if needs_detector:
             if YOLO is None:
                 raise RuntimeError(
@@ -183,6 +190,21 @@ class YoloPoseNode(Node):
                     f'model sha256: {self.model_sha256}'
                 )
 
+    @staticmethod
+    def _parse_roi(text):
+        """Parse "x0,y0,x1,y1" (normalised) into a tuple, or None."""
+        if not text.strip():
+            return None
+        parts = [part.strip() for part in text.split(',')]
+        if len(parts) != 4:
+            raise RuntimeError(f'bbox_roi must be "x0,y0,x1,y1", got {text!r}')
+        values = [float(part) for part in parts]
+        if not all(0.0 <= value <= 1.0 for value in values):
+            raise RuntimeError('bbox_roi values must be normalised 0..1')
+        if values[2] <= values[0] or values[3] <= values[1]:
+            raise RuntimeError('bbox_roi must be x0<x1 and y0<y1')
+        return tuple(values)
+
     def depth_callback(self, msg):
         """Keep the latest depth frame in metres."""
         try:
@@ -220,7 +242,7 @@ class YoloPoseNode(Node):
         # No detector at all: the depth blob supplies the box and the rest is
         # geometry + colour. This is the intended route on the real robot.
         if (self.perception_backend == 'color_frontend'
-                and self.bbox_source == 'depth_blob'):
+                and self.bbox_source != 'detector'):
             try:
                 cv_image = self.bridge.imgmsg_to_cv2(
                     msg, desired_encoding='bgr8'
@@ -402,13 +424,52 @@ class YoloPoseNode(Node):
         """Run the model-free route with a depth-supplied box, no detector."""
         frame_id = image_msg.header.frame_id
         detections = []
-        if self.latest_depth is not None:
+        if self.bbox_source == 'depth_blob' and self.latest_depth is None:
+            return detections
+
+        # The bounding box is perception in its own right: the behaviour tree
+        # approaches on box + confidence and only optionally uses pose_3d
+        # (ccc.xml runs with use_pose_3d=0). Requiring a full pose before
+        # publishing anything is what made the cube undetectable at 1 m, where
+        # the two-face geometry has too few pixels but the blob is obvious.
+        height, width = cv_image.shape[:2]
+        roi = None
+        if self.bbox_roi is not None:
+            x0, y0, x1, y1 = self.bbox_roi
+            roi = (x0 * width, y0 * height, x1 * width, y1 * height)
+        try:
+            if self.bbox_source == 'colour_blob':
+                box = choose_bbox('colour_blob', image_bgr=cv_image)
+            else:
+                box = choose_bbox(
+                    'depth_blob', depth_image=self.latest_depth, roi_xyxy=roi
+                )
+        except BboxSourceError as error:
+            self.get_logger().debug(f'bbox rejected: {error}')
+            return detections
+
+        detection = {
+            'class_name': 'cube',
+            'confidence': float(max(0.35, min(1.0, box.quality))),
+            'box_xyxy': [float(v) for v in box.box_xyxy],
+            'keypoints_xy': [],
+            'keypoints_confidence': [],
+            'pose_evidence': {
+                'backend': 'color_frontend',
+                'bbox_source': box.source,
+                'bbox_quality': float(box.quality),
+                'bbox_detail': dict(box.detail),
+            },
+        }
+
+        if True:  # keep the indentation of the original block below
             try:
                 pose = estimate_model_free_pose(
                     cv_image,
                     self.camera_info.k if self.camera_info else (),
                     depth_image=self.latest_depth,
                     bbox_source='depth_blob',
+                    roi_xyxy=roi,
                     side_length_m=float(
                         self.get_parameter('cube_side_length_m').value
                     ),
@@ -421,31 +482,31 @@ class YoloPoseNode(Node):
                     ),
                 )
             except ModelFreePoseError as error:
-                self.get_logger().debug(f'model-free frame rejected: {error}')
+                # Box-only detection: the tree can approach, the pose stays
+                # unavailable and is reported as such.
+                detection['pose_evidence']['pose_status'] = 'rejected'
+                detection['pose_evidence']['pose_reason'] = str(error)
+                detections.append(detection)
                 self._publish_model_free_overlay(
                     cv_image, image_msg, timestamp,
-                    status='rejected', reason=str(error),
-                    bbox_source='depth_blob',
+                    status='bbox_only', reason=str(error),
+                    bbox_source=box.source,
                 )
             else:
-                detections.append({
-                    'class_name': 'cube',
-                    'confidence': self._model_free_confidence(pose),
-                    'box_xyxy': list(pose.bbox_xyxy),
-                    'keypoints_xy': [],
-                    'keypoints_confidence': [],
-                    'pose_3d': self._model_free_pose_dict(
-                        pose, frame_id, timestamp
-                    ),
-                    'pose_evidence': {
-                        'backend': 'color_frontend',
-                        'bbox_source': pose.bbox_source,
-                        'bbox_quality': pose.bbox_quality,
-                        'label_swaps': list(pose.label_swaps),
-                        'visible_faces': list(pose.visible_faces),
-                        'faces': pose.face_evidence,
-                    },
+                detection['confidence'] = self._model_free_confidence(pose)
+                detection['box_xyxy'] = [float(v) for v in pose.bbox_xyxy]
+                detection['pose_3d'] = self._model_free_pose_dict(
+                    pose, frame_id, timestamp
+                )
+                detection['pose_evidence'].update({
+                    'bbox_source': pose.bbox_source,
+                    'bbox_quality': float(pose.bbox_quality),
+                    'label_swaps': list(pose.label_swaps),
+                    'visible_faces': list(pose.visible_faces),
+                    'faces': pose.face_evidence,
+                    'pose_status': 'accepted',
                 })
+                detections.append(detection)
                 self._publish_model_free_overlay(
                     cv_image, image_msg, timestamp, pose=pose, status=(
                         'accepted' if pose.color_fixed_semantics_resolved
