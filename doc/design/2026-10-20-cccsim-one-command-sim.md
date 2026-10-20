@@ -8,15 +8,26 @@ With `--tree NAME` it runs a tree, attaches the cube and lifts it, and with
     ./bin/cccsim --tree ccprod2 --record      # full mission + recording
     ./bin/cccsim                              # interactive cm1 prompt
 
+Flags follow `bin/ccc`: `--dry-run`, `--keep`, `--evidence-dir PATH`, `-h`. The
+sim-specific ones are `--tree NAME`, `--record`, `--cube-distance M`,
+`--no-moveit` and `--xvfb` (headless host).
+
+At the prompt, use `ccprod2` or `ccprod`: they approach by contact and close the
+fingers, so a bounding box is enough. `ccsim` and `ccgrasp` ask for a `pose_3d`,
+which the model-free route deliberately does not produce, and stop with
+"mission failure" if you pick them.
+
 ## Why it is structured this way
 
 The harness exists to make one thing true: a run must either complete or say
 which step failed. Every oddity below was found by a run that appeared to hang.
 
-**The evidence directory is the report.** Each stage writes its own log into
-`yolo_ws/log/cccsim/<timestamp>/` (gzserver, controllers, perception, cm1,
-attach, cube pose). The repository is the only mounted path, so logs and
-recordings live there rather than in `/tmp`.
+**The evidence directory is the report.** Each stage runs as its own
+`docker compose exec` and writes its own log into
+`yolo_ws/log/cccsim/<timestamp>-<sha>/` (gzserver, rsp, controllers, tf, moveit,
+perception, cm1, attach, cube pose), mounted at `/root/cccsim_evidence`. A stage
+is only accepted when its process is actually running, otherwise the log tail is
+printed and the run fails — the same shape as `bin/ccc`.
 
 **The camera belongs to the robot.** The robot description carries no camera and
 the RealSense Gazebo plugin cannot find one, so `sim/robot_spawn.py` injects a

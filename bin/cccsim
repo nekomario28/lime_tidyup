@@ -1,122 +1,347 @@
 #!/usr/bin/env bash
-# Bring up the cube-grasp simulation and open the cm1 prompt.
+# Cube-grasp simulation, used the same way as ./bin/ccc: one command from the
+# host, which brings the stack up through docker compose and drops you into the
+# cm1 prompt. Type a tree name there (ccsim, ccgrasp, ccprod2, ...).
 #
-# Same shape as bin/ccc: one command from the host, then type a tree name at the
-# prompt. Everything below this line runs inside the Lime container, because the
-# ROS setup, the Robotis workspace and the Gazebo plugin paths all live there.
+#   ./bin/cccsim                      # interactive prompt
+#   ./bin/cccsim --tree ccprod2        # run a tree, attach the cube, lift it
+#   ./bin/cccsim --tree ccprod2 --record   # the same, plus both camera views
 #
-# The order matters and each step exists for a measured reason:
-#   1. gzserver with a world that contains the cameras. The robot's own URDF
-#      declares no camera, and the RealSense plugin cannot find one, so images
-#      only exist because this world provides two camera models.
-#   2. robot_state_publisher built with use_sim:=true. The upstream launch passes
-#      no xacro mappings, so gazebo_ros2_control was handed the *hardware*
-#      plugin class and no controller ever loaded.
-#   3. controllers spawned explicitly (the spawn step is what configures them).
-#   4. static TF base_link -> sim camera frame so a pose expressed in the image
-#      frame transforms correctly; without it ArmToCube aimed at the wrong point.
-#   5. perception with bbox_source=colour_blob. depth_blob cannot be used here:
-#      the depth image's near half is invalid in this sim camera.
-#   6. cm1 registered once in /root/pytwb_ws, then ONE long-lived `python3 cm1`
-#      started in /root/pytwb_ws/src with stdin kept open. Trees are sent to that
-#      stdin; restarting cm1 per tree re-registers the subsystems and hangs.
-set -Eeo pipefail
+# Every stage runs as its own `docker compose exec` (see sim/stack.sh) so a stage
+# that fails is reported with its log instead of leaving a prompt that mysteriously
+# does nothing.
+
+set -Eeuo pipefail
+
+script_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+project_dir="$(cd -- "${script_dir}/.." && pwd)"
+compose=(
+    docker compose
+    -f "${project_dir}/docker-compose.yaml"
+    -f "${project_dir}/docker-compose.cccsim.yaml"
+)
+lime_service=lime_simul_demo_yuu
+yolo_service=yolo
+evidence_dir="${CCCSIM_EVIDENCE_DIR:-}"
+tree=""
+record=false
+cube_distance=1.0
+start_moveit=true
+use_xvfb=false
+dry_run=false
+keep_running=false
+started=false
 
 usage() {
     cat <<'USAGE'
-Usage: ./bin/cccsim [--dry-run] [--keep] [--tree NAME] [--record DIR]
-                    [--cube-distance M] [--no-moveit] [--help]
+Usage: ./bin/cccsim [--dry-run] [--keep] [--tree NAME] [--record]
+                    [--cube-distance M] [--no-moveit] [--evidence-dir PATH]
 
-  --dry-run         Print what would run, start nothing.
-  --keep            Leave Gazebo and the stack running on exit.
-  --tree NAME       Run this tree automatically, then attach and lift the cube.
-                    Without it the cm1 prompt is opened for interactive use.
-  --record          Save camera + third-person JPEG frames under the repository
-                    (yolo_ws/log/cccsim/media/<timestamp>), which is mounted.
-  --cube-distance   Where the cube sits on the floor ahead, in metres (1.0).
-  --no-moveit       Skip move_group (arm commands will fail).
+  --dry-run        Print what would run, start nothing.
+  --keep           Leave the containers running after cm1 exits.
+  --tree NAME      Run this tree, then attach the cube and lift it.
+                   Without it you get the cm1 prompt, as with ./bin/ccc.
+  --record         Record both camera views; frames go to the evidence
+                   directory and are encoded to mp4 when ffmpeg is available.
+  --cube-distance  Where the cube sits on the floor ahead, in metres (1.0).
+  --no-moveit      Skip move_group (arm commands will fail).
+  --xvfb           Start a virtual display (:99) instead of using DISPLAY.
+  --evidence-dir   Persist logs/debug evidence under PATH on the host.
 USAGE
 }
 
-dry_run=false
-keep=false
-tree=""
-record_dir=""
-cube_distance="1.0"
-start_moveit=true
+show_command() {
+    printf ' +'
+    printf ' %q' "$@"
+    printf '\n'
+}
+
+run() {
+    if ${dry_run}; then
+        show_command "$@"
+    else
+        "$@"
+    fi
+}
+
+cleanup() {
+    if ${dry_run}; then
+        return
+    fi
+    if ${started} && ! ${keep_running}; then
+        echo "[cccsim] stopping containers"
+        if ! "${compose[@]}" down --timeout 3 >/dev/null 2>&1; then
+            echo "[cccsim] failed to stop containers; run docker compose down" >&2
+        fi
+    elif ${started}; then
+        echo "[cccsim] containers kept running (--keep)"
+    fi
+}
 
 while (($# > 0)); do
     case "$1" in
         --dry-run) dry_run=true ;;
-        --keep) keep=true ;;
-        --tree) tree="${2:?--tree needs a name}"; shift ;;
-        --record) record_dir="yolo_ws/log/cccsim/media/$(date -u +%Y%m%dT%H%M%SZ)"; shift ;;
-        --cube-distance) cube_distance="${2:?--cube-distance needs metres}"; shift ;;
+        --keep) keep_running=true ;;
+        --tree)
+            if (($# < 2)); then
+                echo "[cccsim] --tree requires a name" >&2
+                exit 2
+            fi
+            tree="$2"
+            shift
+            ;;
+        --record) record=true ;;
+        --cube-distance)
+            if (($# < 2)); then
+                echo "[cccsim] --cube-distance requires metres" >&2
+                exit 2
+            fi
+            cube_distance="$2"
+            shift
+            ;;
         --no-moveit) start_moveit=false ;;
+        --xvfb) use_xvfb=true ;;
+        --evidence-dir)
+            if (($# < 2)); then
+                echo "[cccsim] --evidence-dir requires a path" >&2
+                exit 2
+            fi
+            evidence_dir="$2"
+            shift
+            ;;
         -h|--help) usage; exit 0 ;;
-        *) echo "[cccsim] unknown option: $1" >&2; usage >&2; exit 2 ;;
+        *)
+            echo "[cccsim] unknown option: $1" >&2
+            usage >&2
+            exit 2
+            ;;
     esac
     shift
 done
 
+if [[ -z "${evidence_dir}" ]]; then
+    run_stamp="$(date -u +%Y%m%dT%H%M%SZ)"
+    dev2_short_sha="$(
+        git -C "${project_dir}" rev-parse --short=12 HEAD 2>/dev/null ||
+            printf 'unknown'
+    )"
+    evidence_dir="${project_dir}/yolo_ws/log/cccsim/${run_stamp}-${dev2_short_sha}"
+elif [[ "${evidence_dir}" != /* ]]; then
+    evidence_dir="${project_dir}/${evidence_dir}"
+fi
+export CCCSIM_EVIDENCE_DIR="${evidence_dir}"
+frames_dir=/root/cccsim_evidence/frames
+
+if ! ${dry_run}; then
+    command -v docker >/dev/null || {
+        echo "[cccsim] docker was not found" >&2
+        exit 1
+    }
+    docker compose version >/dev/null || {
+        echo "[cccsim] docker compose was not found" >&2
+        exit 1
+    }
+fi
+
+trap cleanup EXIT
+cd "${project_dir}"
+
+run mkdir -p "${evidence_dir}"
+echo "[cccsim] evidence: ${evidence_dir}"
+
+# ---------------------------------------------------------------------------
+# helpers that run one stage through the compose services
+# ---------------------------------------------------------------------------
+stage_script=/root/repo/sim/stack.sh
+
+stage_command() {
+    local quoted
+    printf -v quoted ' %q' "${stage_script}" "$@"
+    printf '%s' "${quoted# }"
+}
+
+launch_bg() {
+    local service="$1" log="$2"
+    shift 2
+    run "${compose[@]}" exec -T -d -e DISPLAY="${display}" "${service}" \
+        bash -lc "exec $(stage_command "$@") >>/root/cccsim_evidence/${log}.log 2>&1"
+}
+
+run_stage() {
+    local service="$1"
+    shift
+    run "${compose[@]}" exec -T -e DISPLAY="${display}" "${service}" \
+        bash -lc "exec $(stage_command "$@")"
+}
+
+verify_stage() {
+    local service="$1" pattern="$2" log="$3" attempt
+    if ${dry_run}; then
+        return
+    fi
+    # A stage is "up" only when its process is there; python stages need a moment
+    # to import ROS, so give them one before calling it a failure.
+    for attempt in $(seq 1 "${CCCSIM_VERIFY_TRIES:-15}"); do
+        "${compose[@]}" exec -T "${service}" pgrep -f "${pattern}" >/dev/null \
+            2>&1 && return 0
+        sleep 1
+    done
+    if ! "${compose[@]}" exec -T "${service}" pgrep -f "${pattern}" >/dev/null; then
+        echo "[cccsim] ${pattern} failed; ${service}:/root/cccsim_evidence/${log}" >&2
+        "${compose[@]}" exec -T "${service}" \
+            tail -n 40 "/root/cccsim_evidence/${log}.log" >&2 || true
+        exit 1
+    fi
+}
+
 if ${dry_run}; then
+    if [[ -n "${tree}" ]]; then
+        last_plan="${lime_service}: sim/stack.sh tree ${tree}  (then attach + cchair lift)"
+    else
+        last_plan="${lime_service}: sim/stack.sh prompt  (interactive cm1)"
+    fi
     cat <<DRY
-[cccsim] would run, inside the Lime container:
-  1  gzserver --verbose -s libgazebo_ros_init.so -s libgazebo_ros_factory.so sim/world/cube_world.world
-  2  ros2 launch sim/rsp_sim.launch.py            (use_sim:=true -> gazebo_ros2_control/GazeboSystem)
-  3  ros2 run gazebo_ros spawn_entity.py -topic robot_description -entity turtlebot3_lime_system
-  4  spawner joint_state_broadcaster / arm_controller / gripper_controller
-  5  ros2 run tf2_ros static_transform_publisher <computed> base_link sim_camera_color_optical_frame
-  6  $(${start_moveit} && echo 'ros2 launch turtlebot3_lime_moveit_config move_group.launch.py use_sim:=true start_rviz:=false' || echo 'move_group skipped')
-  7  python3 -m barcode_detector.yolo_pose_node  (-p perception_backend:=color_frontend -p bbox_source:=colour_blob)
-  8  sim/spawn_cube.py ${cube_distance} 0.0
-  9  ${record_dir:+python3 sim/record_frames.py ${record_dir}}
- 10  cd /root/pytwb_ws && printf 'create cm1\nY\nexit\n' | pytwb
- 11  cd /root/pytwb_ws/src && python3 cm1      (one server; trees go to its stdin)
- 12  ${tree:+echo '${tree}' >&3, then attach at the fingertips + cchair lift}${tree:-interactive prompt}
+[cccsim] would run:
+  1  docker compose up -d ${lime_service} ${yolo_service}
+  2  colcon build --packages-select barcode_detector            (in ${yolo_service})
+  3  ${use_xvfb:+start Xvfb :99 in ${lime_service}; }verify a camera image arrives
+  4  ${lime_service}: gzserver sim/world/cube_world.world      (background, verified)
+  5  ${lime_service}: ros2 launch sim/rsp_sim.launch.py        (use_sim -> gazebo_ros2_control)
+  6  ${lime_service}: sim/robot_spawn.py                       (spawns the robot with a camera)
+  7  ${lime_service}: spawner joint_state_broadcaster / arm_controller / gripper_controller
+  8  ${lime_service}: static_transform_publisher <computed> base_link sim_camera_color_optical_frame
+  9  ${lime_service}: $(${start_moveit} && echo 'move_group.launch.py use_sim:=true' || echo 'move_group skipped')
+ 10  ${lime_service}: sim/spawn_cube.py ${cube_distance} 0.0
+ 11  ${yolo_service}: barcode_detector yolo_pose_node -p bbox_source:=colour_blob
+ 12  ${record:+${lime_service}: sim/record_frames.py ${frames_dir}}
+ 13  ${lime_service}: printf 'create cm1\nY\nexit\n' | pytwb
+ 14  ${last_plan}
 DRY
     exit 0
 fi
 
-# ---------------------------------------------------------------------------
-# everything below runs inside the container
-# ---------------------------------------------------------------------------
-docker_bin="${DOCKER:-docker}"
-image="${CCCSIM_IMAGE:-course_lime-image_yuu:sim}"
-container="${CCCSIM_CONTAINER:-limesim}"
-repo_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
+echo "[cccsim] starting ${lime_service} and ${yolo_service}"
+started=true
+run "${compose[@]}" up -d --no-build "${lime_service}" "${yolo_service}"
 
-if ! ${docker_bin} ps --format '{{.Names}}' | grep -Fxq "${container}"; then
-    echo "[cccsim] starting ${container} from ${image}"
-    ${docker_bin} run -d --name "${container}" --network host --ipc host \
-        -e DISPLAY="${CCCSIM_DISPLAY:-:99}" -e HOME=/root \
-        -v "${repo_dir}:/root/repo" \
-        "${image}" bash -lc '
-            if ! command -v Xvfb >/dev/null; then
-                apt-get update -qq || true
-                DEBIAN_FRONTEND=noninteractive apt-get install -y -qq --no-install-recommends \
-                    xvfb x11-utils libgl1-mesa-dri || echo "[cccsim] xvfb install failed"
-            fi
-            (nohup Xvfb :99 -screen 0 1280x960x24 -nolisten tcp >/tmp/xvfb.log 2>&1 &)
-            sleep 3
-            xdpyinfo -display :99 >/dev/null 2>&1 && echo "[cccsim] xvfb up" || echo "[cccsim] xvfb DOWN"
-            ln -sfn /root/repo/pytwb_ws /root/pytwb_ws
-            ln -sfn /root/repo/practice_ws /root/practice_ws
-            ln -sfn /root/repo/bin /root/bin
-            ln -sfn /root/repo/yolo_ws /root/yolo_ws
-            sleep infinity'
-    sleep 6
+echo "[cccsim] rebuilding barcode_detector from the mounted dev2 source"
+yolo_build_command='set -Eeo pipefail; source /opt/ros/humble/setup.bash; cd /root/yolo_ws; colcon build --symlink-install --packages-select barcode_detector'
+run "${compose[@]}" exec -T "${yolo_service}" bash -lc "${yolo_build_command}"
+
+# Rendering: a camera sensor with no X display takes gzserver down, so the
+# display is an explicit choice rather than something to discover later.
+display="${DISPLAY:-}"
+if ${use_xvfb}; then
+    display=:99
+    echo "[cccsim] starting Xvfb on :99"
+    "${compose[@]}" exec -T -d "${lime_service}" bash -lc \
+        'command -v Xvfb >/dev/null || { echo "no Xvfb" >&2; exit 1; }
+         nohup Xvfb :99 -screen 0 1280x960x24 -nolisten tcp >/tmp/xvfb.log 2>&1 & sleep 3'
+elif [[ -z "${display}" ]]; then
+    echo "[cccsim] DISPLAY is empty; connect with ssh -XY or pass --xvfb" >&2
+    exit 1
+fi
+echo "[cccsim] rendering on display ${display}"
+
+echo "[cccsim] gazebo"
+launch_bg "${lime_service}" gazebo "gazebo"
+sleep 6
+verify_stage "${lime_service}" gzserver gazebo
+
+# The world's observer camera is the real rendering test: gzserver can be alive
+# with rendering disabled, which is silent until a camera sensor asks for one.
+# The robot camera only exists once the robot is spawned (later).
+if ! "${compose[@]}" exec -T "${lime_service}" bash -lc \
+    'source /opt/ros/humble/setup.bash; timeout 40 ros2 topic echo --once \
+        /observer/camera/image_raw' >/dev/null 2>&1; then
+    echo "[cccsim] no camera image; rendering is not working:" >&2
+    "${compose[@]}" exec -T "${lime_service}" \
+        tail -n 20 /root/cccsim_evidence/gazebo.log >&2 || true
+    echo "[cccsim] use ssh -XY for a real display, or --xvfb on a headless host" >&2
+    exit 1
 fi
 
-args=(--cube-distance "${cube_distance}")
-${start_moveit} || args+=(--no-moveit)
-[[ -n "${tree}" ]] && args+=(--tree "${tree}")
-[[ -n "${record_dir}" ]] && args+=(--record "${record_dir}")
-${keep} && args+=(--keep)
+echo "[cccsim] robot description"
+launch_bg "${lime_service}" rsp "rsp"
+sleep 4
+verify_stage "${lime_service}" rsp_sim.launch.py rsp
 
-# A tree run is scripted: only keep stdin. The interactive prompt needs a TTY.
+echo "[cccsim] robot with a camera"
+run_stage "${lime_service}" spawn
+
+echo "[cccsim] controllers"
+controllers="$(run_stage "${lime_service}" controllers)"
+echo "[cccsim] active controllers: ${controllers}"
+if [[ "${controllers}" == "0" ]]; then
+    echo "[cccsim] no controller became active; arm commands cannot work" >&2
+    exit 1
+fi
+
+echo "[cccsim] camera transform"
+launch_bg "${lime_service}" tf "tf"
+sleep 2
+verify_stage "${lime_service}" static_transform_publisher tf
+
+if ${start_moveit}; then
+    echo "[cccsim] moveit"
+    launch_bg "${lime_service}" moveit "moveit"
+    sleep 4
+    verify_stage "${lime_service}" move_group moveit
+fi
+
+echo "[cccsim] perception (bbox from the cube's colour region)"
+launch_bg "${yolo_service}" perception "perception"
+sleep 6
+verify_stage "${yolo_service}" yolo_pose_node perception
+
+echo "[cccsim] cube at ${cube_distance} m"
+run_stage "${lime_service}" cube "${cube_distance}"
+sleep 2
+
+if ${record}; then
+    echo "[cccsim] recording to ${frames_dir}"
+    launch_bg "${lime_service}" record record "${frames_dir}"
+    verify_stage "${lime_service}" record_frames record
+fi
+
+echo "[cccsim] registering cm1"
+run_stage "${lime_service}" register
+
+if ${record}; then
+    stop_recording() {
+        ${compose[@]} exec -T "${lime_service}" \
+            pkill -f record_frames >/dev/null 2>&1 || true
+        encode_recordings
+    }
+    encode_recordings() {
+        local view source
+        command -v ffmpeg >/dev/null || {
+            echo "[cccsim] ffmpeg not found; frames are in ${evidence_dir}/frames"
+            return
+        }
+        for pair in "camera:camera" "third_person:observer"; do
+            view="${pair%%:*}"
+            source="${evidence_dir}/frames/frames_${pair##*:}"
+            [[ -d "${source}" ]] || continue
+            ffmpeg -y -loglevel error -framerate 10 -i "${source}/%05d.jpg" \
+                -c:v libx264 -pix_fmt yuv420p -crf 22 \
+                "${evidence_dir}/${view}_view.mp4" || true
+        done
+        ls -1 "${evidence_dir}"/*.mp4 2>/dev/null || true
+    }
+    trap 'stop_recording; cleanup' EXIT
+fi
+
 if [[ -n "${tree}" ]]; then
-    exec ${docker_bin} exec -i "${container}" bash /root/repo/sim/stack.sh "${args[@]}"
+    echo "[cccsim] running tree ${tree}, then attaching and lifting"
+    run "${compose[@]}" exec -T -e DISPLAY="${display}" "${lime_service}" \
+        bash -lc "exec $(stage_command tree "${tree}")"
+    echo "[cccsim] done; evidence: ${evidence_dir}"
 else
-    exec ${docker_bin} exec -it "${container}" bash /root/repo/sim/stack.sh "${args[@]}"
+    echo "[cccsim] opening the cm1 prompt"
+    echo "[cccsim] trees that work with this perception: ccprod2, ccprod"
+    echo "[cccsim] (ccsim/ccgrasp need a pose_3d and this route supplies a box only)"
+    echo "[cccsim] Ctrl-D leaves; Ctrl-C stops this environment"
+    run "${compose[@]}" exec -e DISPLAY="${display}" "${lime_service}" \
+        bash -lc "exec $(stage_command prompt)"
 fi

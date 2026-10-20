@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 """Spawn the 57 mm Rubik cube as a dynamic body in front of the robot."""
+import os
 import sys
 
 import rclpy
@@ -9,17 +10,30 @@ from rclpy.node import Node
 
 # Generate the cube from the repository generator instead of shipping a copy, so
 # the sim target cannot drift from the asset the perception code is tuned on.
-sys_path = '/root/repo/yolo_ws/src/barcode_detector'
-if sys_path not in sys.path:
-    sys.path.insert(0, sys_path)
+# The module is loaded by path: an installed barcode_detector earlier on
+# PYTHONPATH would otherwise win and may predate the generator.
+RUBIK_GENERATOR_CANDIDATES = (
+    '/root/yolo_ws/src/barcode_detector/barcode_detector/rubik_pose_cube.py',
+    '/root/repo/yolo_ws/src/barcode_detector/barcode_detector/rubik_pose_cube.py',
+)
+
+
+def load_cube_generator():
+    import importlib.util
+
+    for candidate in RUBIK_GENERATOR_CANDIDATES:
+        if os.path.isfile(candidate):
+            spec = importlib.util.spec_from_file_location('rubik_pose_cube', candidate)
+            module = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(module)
+            return module
+    raise SystemExit('rubik_pose_cube.py not found; is yolo_ws mounted?')
 
 
 def main():
     distance = float(sys.argv[1]) if len(sys.argv) > 1 else 0.34
     lateral = float(sys.argv[2]) if len(sys.argv) > 2 else 0.0
-    from barcode_detector.rubik_pose_cube import build_model_sdf
-
-    xml = build_model_sdf(static=False)
+    xml = load_cube_generator().build_model_sdf(static=False)
     rclpy.init()
     node = Node('spawn_cube')
     client = node.create_client(SpawnEntity, '/spawn_entity')
