@@ -180,7 +180,8 @@ case "${stage}" in
         # joint goal from the measured cube centre and lifts it by contact.
         if [[ "${CCCSIM_GRASP:-0}" == "1" ]]; then
             echo "[stage] grasp: ik + close + lift"
-            python3 "${repo}/sim/grasp_cube.py" 2>&1 | tee "${ev}/grasp.log" | tail -3
+            python3 "${repo}/sim/grasp_cube.py" 6.0 "${CCCSIM_GRASP_CREEP:-0.10}" \
+                2>&1 | tee "${ev}/grasp.log" | tail -3
         fi
 
         # CCCSIM_ATTACH=1 (default) attaches the cube at the fingertip link,
