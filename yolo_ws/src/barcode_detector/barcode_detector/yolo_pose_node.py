@@ -64,6 +64,12 @@ class YoloPoseNode(Node):
         self.declare_parameter('bbox_source', 'detector')
         self.declare_parameter('depth_topic', '')
         self.declare_parameter('depth_scale_m', 0.001)
+        # Publish the cube centre as pose_3d when a depth image is available and
+        # the two-face pose is not. The centre needs no face semantics: a cube is
+        # symmetric about it, so this is the honest 3D target for a top grasp.
+        self.declare_parameter('depth_pose_enabled', True)
+        self.declare_parameter('depth_pose_minimum_valid_fraction', 0.30)
+        self.declare_parameter('depth_pose_maximum_mad_m', 0.02)
         # Normalised perception ROI for the depth blob ("x0,y0,x1,y1" in 0..1).
         # The arm is inside the same working-distance band as the cube, so the
         # two merge into one blob unless the search is bounded; a real
@@ -102,11 +108,27 @@ class YoloPoseNode(Node):
             str(self.get_parameter('bbox_roi').value)
         )
         self.latest_depth = None
-        if self.bbox_source == 'depth_blob':
-            if not self.depth_topic:
-                raise RuntimeError(
-                    'bbox_source=depth_blob requires the depth_topic parameter'
+        self.depth_frame_id = ''
+        self.depth_camera_info = None
+        self.latest_image_width = 0
+        self.latest_image_height = 0
+        self.depth_pose_enabled = bool(
+            self.get_parameter('depth_pose_enabled').value
+        )
+        if self.bbox_source == 'depth_blob' and not self.depth_topic:
+            raise RuntimeError(
+                'bbox_source=depth_blob requires the depth_topic parameter'
+            )
+        if self.depth_topic and self.depth_pose_enabled:
+            self.create_subscription(
+                Image, self.depth_topic, self.depth_callback, 1
+            )
+            for info_topic in self._depth_info_candidates(self.depth_topic):
+                self.create_subscription(
+                    CameraInfo, info_topic, self.depth_info_callback, 1
                 )
+                break
+        elif self.bbox_source == 'depth_blob':
             self.create_subscription(
                 Image, self.depth_topic, self.depth_callback, 1
             )
@@ -223,14 +245,103 @@ class YoloPoseNode(Node):
                 )
                 return
             self.latest_depth = depth
+            self.depth_frame_id = msg.header.frame_id
         except Exception as error:  # noqa: BLE001 - never kill the callback
             self.get_logger().warning(f'depth decode failed: {error}')
+
+    @staticmethod
+    def _depth_info_candidates(depth_topic):
+        """CameraInfo topics a depth sensor may publish, most specific first."""
+        if depth_topic.endswith('/image_raw'):
+            base = depth_topic[:-len('/image_raw')]
+            return (base + '/camera_info',)
+        return (depth_topic + '/camera_info',)
+
+    def depth_info_callback(self, msg):
+        """Keep the depth intrinsics (the colour ones may be a different camera)."""
+        self.depth_camera_info = msg
+
+    def _depth_centre_pose(self, box_xyxy, timestamp):
+        """Cube centre from the box plus depth, in the depth optical frame.
+
+        Only the middle of the box is sampled: its edges include the floor, whose
+        depth would drag the estimate backwards. A wide spread or a mostly
+        invalid patch means the box straddles an edge, and the answer is withheld
+        rather than guessed.
+        """
+        depth = self.latest_depth
+        info = self.depth_camera_info
+        if depth is None or info is None:
+            self.get_logger().debug(
+                'depth centre: no depth=%s no info=%s'
+                % (depth is None, info is None))
+            return None
+        rows, cols = depth.shape[:2]
+        x0, y0, x1, y1 = (float(v) for v in box_xyxy)
+        inset_x = 0.25 * (x1 - x0)
+        inset_y = 0.25 * (y1 - y0)
+        # the box is in the colour image; scale into the depth image
+        scale_x = cols / float(self.latest_image_width or cols)
+        scale_y = rows / float(self.latest_image_height or rows)
+        u0 = max(0, int((x0 + inset_x) * scale_x))
+        u1 = min(cols, int((x1 - inset_x) * scale_x) + 1)
+        v0 = max(0, int((y0 + inset_y) * scale_y))
+        v1 = min(rows, int((y1 - inset_y) * scale_y) + 1)
+        if u1 <= u0 or v1 <= v0:
+            return None
+        window = depth[v0:v1, u0:u1]
+        valid = window[np.isfinite(window) & (window > 0.02) & (window < 10.0)]
+        valid_fraction = valid.size / float(window.size) if window.size else 0.0
+        if valid.size == 0 or (
+                valid_fraction
+                < float(self.get_parameter(
+                    'depth_pose_minimum_valid_fraction').value)):
+            self.get_logger().debug(
+                'depth centre: valid fraction %.2f (window %dx%d, finite %d)'
+                % (valid_fraction, window.shape[1], window.shape[0], valid.size))
+            return None
+        distance = float(np.median(valid))
+        spread = float(np.median(np.abs(valid - distance)))
+        if spread > float(self.get_parameter('depth_pose_maximum_mad_m').value):
+            self.get_logger().debug(
+                'depth centre: spread %.3f m at %.3f m rejected'
+                % (spread, distance))
+            return None
+        k = info.k
+        fx, fy, cx, cy = float(k[0]), float(k[4]), float(k[2]), float(k[5])
+        if fx <= 0.0 or fy <= 0.0:
+            return None
+        u = 0.5 * (x0 + x1) * scale_x
+        v = 0.5 * (y0 + y1) * scale_y
+        return {
+            'geometry_id': 'depth-centre-v1',
+            'frame_id': info.header.frame_id or self.depth_frame_id,
+            'timestamp': timestamp,
+            'side_length_m': float(
+                self.get_parameter('cube_side_length_m').value
+            ),
+            'position_m': [
+                (u - cx) * distance / fx,
+                (v - cy) * distance / fy,
+                distance,
+            ],
+            'orientation_xyzw': [0.0, 0.0, 0.0, 1.0],
+            'reprojection_error_px': None,
+            'correspondence_count': int(valid.size),
+            'inlier_count': int(valid.size),
+            'inlier_mask': [],
+            'color_fixed_semantics_resolved': False,
+            'depth_spread_m': spread,
+            'perception_backend': 'color_frontend',
+        }
 
     def camera_info_callback(self, msg):
         """Keep the latest static color-camera calibration."""
         self.camera_info = msg
 
     def image_callback(self, msg):
+        self.latest_image_width = int(msg.width)
+        self.latest_image_height = int(msg.height)
         now = time.time()
 
         # 毎フレーム推論すると重いので、1秒に1回だけ推論
@@ -486,6 +597,13 @@ class YoloPoseNode(Node):
                 # unavailable and is reported as such.
                 detection['pose_evidence']['pose_status'] = 'rejected'
                 detection['pose_evidence']['pose_reason'] = str(error)
+                depth_pose = self._depth_centre_pose(box.box_xyxy, timestamp)
+                if depth_pose is not None:
+                    detection['pose_3d'] = depth_pose
+                    detection['pose_evidence']['pose_status'] = 'depth_centre'
+                    detection['pose_evidence']['pose_reason'] = (
+                        'two-face pose unavailable; centre measured from depth'
+                    )
                 detections.append(detection)
                 self._publish_model_free_overlay(
                     cv_image, image_msg, timestamp,

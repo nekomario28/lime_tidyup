@@ -61,6 +61,10 @@ case "${stage}" in
         # the same offset the injected sensor uses; images and TF must agree or
         # a pose expressed in the image frame points somewhere else
         read -r -a camera_tf <<<"$(python3 "${repo}/sim/camera_tf.py")"
+        # Both sensors share the mount, so both frames get the same transform;
+        # the depth one is what pose_3d is expressed in.
+        ros2 run tf2_ros static_transform_publisher "${camera_tf[@]}" \
+            base_link sim_camera_depth_optical_frame &
         exec ros2 run tf2_ros static_transform_publisher "${camera_tf[@]}" \
             base_link sim_camera_color_optical_frame
         ;;
@@ -73,9 +77,15 @@ case "${stage}" in
         # No learned model: the cube's colour region gives the box and the box
         # is all the approach needs. depth_blob cannot be used here (the depth
         # image has two publishers and invalid near rows).
+        # CCCSIM_PERCEPTION_LOG_LEVEL=debug to see why a pose or a depth sample
+        # was rejected (each rejection is logged at debug on purpose: at info it
+        # would be one line per frame).
         exec ros2 run barcode_detector yolo_pose_node --ros-args \
+            --log-level "${CCCSIM_PERCEPTION_LOG_LEVEL:-info}" \
             -p perception_backend:=color_frontend \
             -p bbox_source:=colour_blob \
+            -p depth_topic:=/camera/camera/depth_cam/depth/image_raw \
+            -p depth_scale_m:=1.0 \
             -p publish_debug_image:=true \
             -p debug_image_path:="${ev}/perception_debug.jpg"
         ;;
@@ -125,12 +135,17 @@ case "${stage}" in
             exit 1
         fi
 
-        # The tree reaches the cube; closing the fingers on it is not something
-        # this build can do without friction (gazebo_grasp_fix is absent), so the
-        # cube is attached at the fingertip link and then lifted by cchair.
-        python3 "${repo}/sim/attach_cube.py" turtlebot3_lime_system \
-            gripper_left_link rubik_cube body >"${ev}/attach.log" 2>&1 || true
-        tail -1 "${ev}/attach.log" || true
+        # CCCSIM_ATTACH=1 (default) attaches the cube at the fingertip link,
+        # which is what a session without friction needs. CCCSIM_ATTACH=0 skips
+        # it, so the lift below measures whether the fingers actually hold the
+        # cube by contact.
+        if [[ "${CCCSIM_ATTACH:-1}" == "0" ]]; then
+            echo "[stage] attach skipped (CCCSIM_ATTACH=0): lift tests contact only"
+        else
+            python3 "${repo}/sim/attach_cube.py" turtlebot3_lime_system \
+                gripper_left_link rubik_cube body >"${ev}/attach.log" 2>&1 || true
+            tail -1 "${ev}/attach.log" || true
+        fi
         echo 'cchair' >&3
         for _ in $(seq 1 90); do
             grep -q 'mission complete' <(sed -n '/^cchair$/,$p' "${ev}/cm1.log") \

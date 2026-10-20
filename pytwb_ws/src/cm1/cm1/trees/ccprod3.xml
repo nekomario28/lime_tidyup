@@ -1,0 +1,29 @@
+<root>
+    <BehaviorTree ID="cube_floor_grasp_aimed">
+        <!--
+            Same scenario as ccprod2, but the arm is aimed at the cube centre
+            measured from depth instead of dropping into a fixed posture. That is
+            what lets the finger pads arrive around the cube, which a friction
+            grasp needs: the fixed posture landed ~10 cm short (measured in the
+            recorded runs, where an attach plugin had to close the gap).
+
+            require_color_fixed=0 because only the *centre* is used: a cube is
+            symmetric about it, so which physical face is which does not matter
+            for a top grasp. A two-face pose would still set the flag itself.
+        -->
+        <Sequence name="main">
+            <SearchCube name="search_cube" threshold="[0.30]"/>
+            <TakeAim name="take_aim_far" threshold="[0.30]"
+                     turn_speed="[0.20]" center_tolerance="[15.0]"/>
+            <Walk name="approach_62cm" distance="[0.62]"/>
+            <TakeAim name="take_aim_near" threshold="[0.30]"
+                     turn_speed="[0.10]" center_tolerance="[8.0]"/>
+            <Open name="open_gripper"/>
+            <ArmToCube name="arm_to_cube" standoff="0.0" roll="180.0"
+                       pitch="0.0" yaw="0.0" minimum_confidence="[0.30]"
+                       require_color_fixed="[0]"/>
+            <Close name="close_gripper"/>
+            <Sleep name="settle" time="[2.0]"/>
+        </Sequence>
+    </BehaviorTree>
+</root>

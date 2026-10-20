@@ -9,6 +9,13 @@ explicitly and has to match the spawn pose, or the arm aims at the wrong point
 """
 from __future__ import annotations
 
+import os
+import sys
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+
+import camera_mount  # noqa: E402
+
 import math
 from pathlib import Path
 
@@ -17,8 +24,8 @@ from pathlib import Path
 # The camera model sits where the robot's camera is at the grasp station, so the
 # offset from base_link is the station pose (0.76, 0, 0.10) minus base_link's
 # world position at that moment (0.70, 0, 0.06).
-CAMERA_OFFSET_XYZ = (0.155, 0.0, 0.18)
-CAMERA_OFFSET_RPY = (0.0, 0.45, 0.0)
+CAMERA_OFFSET_XYZ = camera_mount.OFFSET_XYZ
+CAMERA_OFFSET_RPY = camera_mount.OFFSET_RPY
 # The offset is already relative to base_link; nothing to subtract.
 
 
