@@ -1,6 +1,9 @@
 <root>
     <BehaviorTree ID="cube_search_approach">
-        <!-- Find the cube, aim at it and stop within arm reach. The grasp itself
+        <!-- Find the cube, aim at it and stop within arm reach. The walk stays at
+             0.72 m: at 0.80 the cube leaves the camera's view and take_aim_near
+             aborts, and grasp_cube.py handles a target that is still out of reach
+             by pulling it towards the base in 3 cm steps. The grasp itself
              is done by sim/grasp_cube.py: cm1's actor callbacks cannot plan a
              pose goal (pymoveit2 caps allowed_planning_time at 0.5 s, which OMPL
              cannot satisfy for this arm) nor wait on an IK future. -->

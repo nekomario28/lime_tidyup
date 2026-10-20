@@ -1307,6 +1307,11 @@ class Tb3ManipulatorSystem(SubSystem):
         )
         arm.max_velocity = 0.5
         arm.max_acceleration = 0.5
+        # pymoveit2 defaults the move action's budget to 0.5 s, which is too short
+        # for OMPL to sample a goal region for this arm: every pose goal aborts
+        # with "Insufficient states in sampleable goal region" while /compute_ik
+        # solves the same pose in one call. 5 s is enough and still bounded.
+        arm.allowed_planning_time = 5.0
         self.set_value('arm', arm)
         self.set_value('gripper', gripper) 
         self.set_value('joint_stat', [0.0, 0.0, 0.0, 0.0])  

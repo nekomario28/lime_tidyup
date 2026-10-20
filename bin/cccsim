@@ -251,6 +251,11 @@ elif [[ -z "${display}" ]]; then
 fi
 echo "[cccsim] rendering on display ${display}"
 
+if [[ "${CCCSIM_GRASP_PLUGIN:-1}" == "1" ]]; then
+    echo "[cccsim] grasp plugin (gazebo_grasp_fix)"
+    run_stage "${lime_service}" grasp_plugin
+fi
+
 echo "[cccsim] gazebo"
 launch_bg "${lime_service}" gazebo "gazebo"
 sleep 6

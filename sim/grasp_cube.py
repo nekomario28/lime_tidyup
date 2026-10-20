@@ -209,15 +209,29 @@ def main():
 
     # Close the loop on the pads themselves: solve, move, measure where the pads
     # ended up, correct the end-effector target by that error, repeat.
+    # Solve, move, measure the pads, correct. Two problems are handled here:
+    # the measured centre can be out of the arm's reach (KDL returns -31), and
+    # with position-only IK the pads do not sit a fixed distance below
+    # end_effector_link, so the offset has to be measured rather than assumed.
     target = list(grasp)
     joints = None
-    for attempt in range(3):
+    for pull in range(4):
         joints = node.solve_ik(target, GRASP_ORIENTATION)
-        if joints is None:
-            joints = node.solve_ik(target, (0.0, 0.0, 0.0, 1.0))
-        if joints is None:
-            raise SystemExit('ik found no solution for the grasp pose '
-                             '(%.3f %.3f %.3f)' % tuple(target))
+        if joints is not None:
+            break
+        target[0] -= 0.03
+        node.get_logger().warn('out of reach, target pulled to %s'
+                               % [round(v, 3) for v in target])
+    if joints is None:
+        raise SystemExit('ik found no solution within reach (cube at %s)'
+                         % [round(v, 3) for v in grasp])
+
+    for attempt in range(3):
+        if attempt:
+            joints = node.solve_ik(target, GRASP_ORIENTATION)
+            if joints is None:
+                raise SystemExit('ik lost the corrected target %s'
+                                 % [round(v, 3) for v in target])
         node.get_logger().info('attempt %d: ee target %s joints %s'
                                % (attempt + 1, [round(v, 3) for v in target],
                                   [round(v, 3) for v in joints]))

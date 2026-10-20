@@ -39,10 +39,15 @@ repositories:
   pymoveit2:
     type: git
     url: https://github.com/AndrejOrsula/pymoveit2.git
-  #gazebo-pkgs:
-  #  type: git
-  #  url: https://github.com/kongoncharuk/gazebo-pkgs
-  #  version: humble
+  # Contact-based grasping: builds libgazebo_grasp_fix.so, which the URDF's
+  # gazebo_grasp_fix plugin block already expects. Without it a grasp only holds
+  # if the fingers happen to squeeze hard enough; with it, contact on both pads is
+  # detected and the grip is kept (disable_collisions_on_attach), which is what
+  # replaces attaching the cube at the fingertip link.
+  gazebo-pkgs:
+    type: git
+    url: https://github.com/kongoncharuk/gazebo-pkgs
+    version: humble
   pytwb:
     type: git
     url: https://github.com/momoiorg-repository/pytwb.git
