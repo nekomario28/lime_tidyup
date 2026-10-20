@@ -333,7 +333,8 @@ if ${record}; then
             echo "[cccsim] ffmpeg not found; frames are in ${evidence_dir}/frames"
             return
         }
-        for pair in "camera:camera" "third_person:observer"; do
+        for pair in "camera:camera" "third_person:observer" \
+                    "overlay:overlay" "grasp:grasp"; do
             view="${pair%%:*}"
             source="${evidence_dir}/frames/frames_${pair##*:}"
             [[ -d "${source}" ]] || continue

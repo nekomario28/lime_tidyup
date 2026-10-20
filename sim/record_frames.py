@@ -16,6 +16,10 @@ FPS = float(sys.argv[3]) if len(sys.argv) > 3 else 10.0
 TOPICS = {
     'camera': ('/camera/camera/color/image_raw', 'camera'),
     'observer': ('/observer/camera/image_raw', 'observer'),
+    # Perception's own annotated frame (bbox, pose status), published every frame.
+    'overlay': ('/cube_pose_debug_image', 'overlay'),
+    # Where the grasp aimed, published by sim/grasp_cube.py at each decision.
+    'grasp': ('/grasp_debug_image', 'grasp'),
 }
 
 
