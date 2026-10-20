@@ -1,0 +1,18 @@
+<root>
+    <BehaviorTree ID="cube_search_approach">
+        <!-- Find the cube, aim at it and stop within arm reach. The grasp itself
+             is done by sim/grasp_cube.py: cm1's actor callbacks cannot plan a
+             pose goal (pymoveit2 caps allowed_planning_time at 0.5 s, which OMPL
+             cannot satisfy for this arm) nor wait on an IK future. -->
+        <Sequence name="main">
+            <SearchCube name="search_cube" threshold="[0.30]"/>
+            <TakeAim name="take_aim_far" threshold="[0.30]"
+                     turn_speed="[0.20]" center_tolerance="[15.0]"/>
+            <Walk name="approach_72cm" distance="[0.72]"/>
+            <TakeAim name="take_aim_near" threshold="[0.30]"
+                     turn_speed="[0.10]" center_tolerance="[8.0]"/>
+            <Open name="open_gripper"/>
+            <Sleep name="settle" time="[3.0]"/>
+        </Sequence>
+    </BehaviorTree>
+</root>

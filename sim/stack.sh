@@ -135,6 +135,13 @@ case "${stage}" in
             exit 1
         fi
 
+        # CCCSIM_GRASP=1 hands the last step to sim/grasp_cube.py, which plans a
+        # joint goal from the measured cube centre and lifts it by contact.
+        if [[ "${CCCSIM_GRASP:-0}" == "1" ]]; then
+            echo "[stage] grasp: ik + close + lift"
+            python3 "${repo}/sim/grasp_cube.py" 2>&1 | tee "${ev}/grasp.log" | tail -3
+        fi
+
         # CCCSIM_ATTACH=1 (default) attaches the cube at the fingertip link,
         # which is what a session without friction needs. CCCSIM_ATTACH=0 skips
         # it, so the lift below measures whether the fingers actually hold the

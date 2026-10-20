@@ -36,6 +36,50 @@ def rclpy_time_now():
     return Time()
 
 
+def solve_ik(position, quat_xyzw, joint_names, timeout_sec=5.0):
+    """Solve IK for `end_effector_link` with a throwaway node.
+
+    pymoveit2's compute_ik waits for a future on the caller's node; called from an
+    actor callback that node is already spinning that callback, so the wait never
+    completes and the tree aborts with an empty error. A private node does not
+    share that executor.
+    """
+    import rclpy
+    from moveit_msgs.srv import GetPositionIK
+
+    node = rclpy.create_node('cube_ik_client')
+    try:
+        client = node.create_client(GetPositionIK, '/compute_ik')
+        if not client.wait_for_service(timeout_sec=timeout_sec):
+            print('arm_to_cube: /compute_ik is not available')
+            return None
+        request = GetPositionIK.Request()
+        request.ik_request.group_name = 'arm'
+        request.ik_request.ik_link_name = 'end_effector_link'
+        request.ik_request.pose_stamped.header.frame_id = 'base_link'
+        request.ik_request.pose_stamped.pose.position.x = float(position[0])
+        request.ik_request.pose_stamped.pose.position.y = float(position[1])
+        request.ik_request.pose_stamped.pose.position.z = float(position[2])
+        request.ik_request.pose_stamped.pose.orientation.x = float(quat_xyzw[0])
+        request.ik_request.pose_stamped.pose.orientation.y = float(quat_xyzw[1])
+        request.ik_request.pose_stamped.pose.orientation.z = float(quat_xyzw[2])
+        request.ik_request.pose_stamped.pose.orientation.w = float(quat_xyzw[3])
+        request.ik_request.avoid_collisions = True
+        request.ik_request.timeout.sec = 2
+        # Client.call() drives this private node's own wait set; the future form
+        # fails with "wait set index too big" because the future belongs to a
+        # client this node never had in an executor.
+        response = client.call(request)
+        if response is not None and response.error_code.val == 1:
+            print('arm_to_cube: ik solved')
+            return response.solution.joint_state
+        print('arm_to_cube: ik failed:', None if response is None
+              else response.error_code.val)
+        return None
+    finally:
+        node.destroy_node()
+
+
 def wait_until_executed(arm):
     while(arm.query_state() != MoveIt2State.IDLE):
         sleep(0.5)
@@ -135,6 +179,7 @@ class ManipulatorNetwork(SubNet):
         minimum_confidence=0.30,
         require_color_fixed=True,
         grasp_at_fingers=True,
+        direct_ik=True,
     ):
         """Aim the arm at the detected cube, with an explicit orientation.
 
@@ -248,6 +293,39 @@ class ManipulatorNetwork(SubNet):
               f' {target[2]:.3f}) ee_offset={offset_tool:.4f} m'
               f' rpy_deg=({float(roll_deg):.0f}, {float(pitch_deg):.0f},'
               f' {float(yaw_deg):.0f})')
+        # Reach the target through IK + a joint-space goal rather than a pose
+        # goal. pymoveit2 hardcodes `allowed_planning_time = 0.5` on the move
+        # action, and within that window OMPL cannot sample a goal region for
+        # this arm: it reports "Insufficient states in sampleable goal region"
+        # for every target, including poses that /compute_ik solves in one call
+        # (measured: the arm never left its folded pose and nothing touched the
+        # cube). The IK service has no such budget, so solve here and command the
+        # joints directly.
+        if direct_ik:
+            try:
+                arm = self.get_value('arm')
+                q = quaternion.from_euler_angles(angle)
+                solution = solve_ik(
+                    target, (q.x, q.y, q.z, q.w), arm.joint_names)
+            except Exception as error:  # noqa: BLE001
+                import traceback
+                traceback.print_exc()
+                print(f'arm_to_cube: ik path raised '
+                      f'{type(error).__name__}: {error}')
+                solution = None
+            if solution is not None:
+                by_name = dict(zip(solution.name, solution.position))
+                joints = [by_name[name] for name in arm.joint_names
+                          if name in by_name]
+                if len(joints) == len(arm.joint_names):
+                    print('arm_to_cube: ik joints '
+                          + str([round(value, 3) for value in joints]))
+                    arm.move_to_configuration(joints, joint_names=arm.joint_names)
+                    wait_until_executed(arm)
+                    return True
+                print('arm_to_cube: ik solution is missing arm joints')
+            print('arm_to_cube: no ik solution; falling back to a pose goal')
+
         self.run_actor('arm_pose', target, angle)
         return True
 

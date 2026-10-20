@@ -28,6 +28,7 @@ record=false
 cube_distance=1.0
 start_moveit=true
 attach_cube=true
+grasp=false
 use_xvfb=false
 dry_run=false
 keep_running=false
@@ -48,6 +49,8 @@ Usage: ./bin/cccsim [--dry-run] [--keep] [--tree NAME] [--record]
   --no-moveit      Skip move_group (arm commands will fail).
   --no-attach      Do not attach the cube after the tree; the lift then proves
                    whether the fingers hold it by contact.
+  --grasp          Run sim/grasp_cube.py after the tree: IK to the measured cube,
+                   close the fingers, lift. Implies --no-attach.
   --xvfb           Start a virtual display (:99) instead of using DISPLAY.
   --evidence-dir   Persist logs/debug evidence under PATH on the host.
 USAGE
@@ -104,6 +107,7 @@ while (($# > 0)); do
             ;;
         --no-moveit) start_moveit=false ;;
         --no-attach) attach_cube=false ;;
+        --grasp) attach_cube=false; grasp=true ;;
         --xvfb) use_xvfb=true ;;
         --evidence-dir)
             if (($# < 2)); then
@@ -341,8 +345,11 @@ if [[ -n "${tree}" ]]; then
     echo "[cccsim] running tree ${tree}, then attaching and lifting"
     attach_env=1
     ${attach_cube} || attach_env=0
+    grasp_env=0
+    ${grasp} && grasp_env=1
     run "${compose[@]}" exec -T -e DISPLAY="${display}" -e CCCSIM_ATTACH="${attach_env}" \
-        "${lime_service}" bash -lc "exec $(stage_command tree "${tree}")"
+        -e CCCSIM_GRASP="${grasp_env}" "${lime_service}" \
+        bash -lc "exec $(stage_command tree "${tree}")"
     echo "[cccsim] done; evidence: ${evidence_dir}"
 else
     echo "[cccsim] opening the cm1 prompt"
