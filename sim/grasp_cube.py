@@ -43,12 +43,14 @@ from trajectory_msgs.msg import JointTrajectory, JointTrajectoryPoint
 
 ARM_JOINTS = ['joint1', 'joint2', 'joint3', 'joint4', 'joint5', 'joint6']
 EE_TO_PADS_M = 0.0443      # end_effector_link sits this far past the finger pads
-#: Extra distance to leave between the pads and the cube centre. Zero: measured,
-#: the pads (gripper_left/right_link origins) are the contact surfaces and they
-#: stop 7.7 cm behind the cube, so leaving a "finger length" made them close on
-#: air behind it. The gap has to be driven in full with the arm pose held, which
-#: is safe because the open jaws are 8 cm wide and the cube is 5.7 cm.
-FINGER_REACH_M = 0.0
+#: Where the pads actually contact, measured from the finger meshes
+#: (gripper_*_palm.stl, scaled by 0.001 in the URDF): the finger runs from
+#: z = -23 mm to z = +65 mm along the tool axis relative to
+#: gripper_left/right_link, so the pad's contact band centres about +25 mm past
+#: the link origin. With the grasp pitch of 120 deg that is 0.025*sin(120) =
+#: 0.022 m of forward reach beyond the point TF reports, which is exactly the
+#: gap that made the jaws close on air (0.05 assumed) or shove the cube (0.0).
+FINGER_REACH_M = 0.022
 GRIPPER_CLOSED = -0.010
 GRIPPER_EFFORT = 6.0
 # Measured with the sim's own IK service at the post-approach pose (cube 0.31 m
@@ -199,8 +201,44 @@ class Grasper(Node):
                 self.gripper_position = float(position)
                 return
 
-    def drive_forward(self, metres, speed=0.05):
-        """Creep the base forward; the tree stops short of the arm's real reach."""
+    @staticmethod
+    def robot_world_x():
+        """The robot's world x, used only to prove that a creep moved it.
+
+        A base move cannot change base_link coordinates -- both the cube and the
+        pads live there -- so the earlier "pads moved 0.0000" check could never
+        have detected a stalled drive.
+        """
+        import subprocess
+        try:
+            output = subprocess.run(
+                ['gz', 'model', '--model-name', 'turtlebot3_lime_system',
+                 '--info'], capture_output=True, text=True, timeout=25).stdout
+        except Exception as error:  # noqa: BLE001
+            print('robot_world_x failed:', type(error).__name__, error)
+            return None
+        lines = output.splitlines()
+        if not lines:
+            print('robot_world_x: gz model returned nothing')
+        for index, line in enumerate(lines):
+            if line.strip() == 'position {':
+                for offset in (1, 2, 3):
+                    if index + offset < len(lines) and 'x:' in lines[index + offset]:
+                        try:
+                            return float(lines[index + offset].split(':')[1])
+                        except ValueError:
+                            return None
+        return None
+
+    def drive_forward(self, metres, speed=0.03):
+        """Creep the base forward; the tree stops short of the arm's real reach.
+
+        Speed matters: at 0.015 m/s the differential drive does not move at all
+        (measured: eight 5 mm creeps left the cube untouched and the pads in
+        place), so the command is never issued below 0.03 m/s.
+        """
+        speed = max(abs(speed), 0.03)
+        before = self.robot_world_x()
         seconds = abs(metres) / speed
         message = Twist()
         message.linear.x = speed if metres > 0 else -speed
@@ -519,8 +557,7 @@ def main():
         node.send_gripper(0.019)
         time.sleep(0.6)
         node.get_logger().info('creeping 5 mm closer')
-        node.drive_forward(0.005, speed=0.015)
-        time.sleep(0.4)
+        node.drive_forward(0.005, speed=0.03)
 
     if not gripped:
         node.get_logger().warn('the jaws never stalled on the cube; '
@@ -530,8 +567,8 @@ def main():
     lifted = list(joints)
     lifted[1] += 0.25          # shoulder up
     lifted[2] -= 0.30          # elbow compensates, keeping the wrist above
-    node.get_logger().info('lifting slowly')
-    node.send_arm(lifted, seconds=max(lift_seconds, 8.0))
+    node.get_logger().info('lifting')
+    node.send_arm(lifted, seconds=lift_seconds)
     time.sleep(2.0)
     print('grasp attempt finished')
 
