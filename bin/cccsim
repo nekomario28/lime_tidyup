@@ -298,14 +298,15 @@ echo "[cccsim] cube at ${cube_distance} m"
 run_stage "${lime_service}" cube "${cube_distance}"
 sleep 2
 
+echo "[cccsim] registering cm1"
+run_stage "${lime_service}" register
+
 if ${record}; then
     echo "[cccsim] recording to ${frames_dir}"
     launch_bg "${lime_service}" record record "${frames_dir}"
     verify_stage "${lime_service}" record_frames record
+    sleep 2
 fi
-
-echo "[cccsim] registering cm1"
-run_stage "${lime_service}" register
 
 if ${record}; then
     stop_recording() {

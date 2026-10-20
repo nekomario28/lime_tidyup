@@ -17,8 +17,8 @@ from pathlib import Path
 # The camera model sits where the robot's camera is at the grasp station, so the
 # offset from base_link is the station pose (0.76, 0, 0.10) minus base_link's
 # world position at that moment (0.70, 0, 0.06).
-CAMERA_OFFSET_XYZ = (0.155, 0.0, 0.05)
-CAMERA_OFFSET_RPY = (0.0, 0.10, 0.0)
+CAMERA_OFFSET_XYZ = (0.155, 0.0, 0.18)
+CAMERA_OFFSET_RPY = (0.0, 0.45, 0.0)
 # The offset is already relative to base_link; nothing to subtract.
 
 

@@ -28,7 +28,7 @@ CAMERA_XML = """
     <sensor name="sim_color" type="camera">
       <always_on>true</always_on>
       <update_rate>15</update_rate>
-      <pose>0.155 0 0.05 0 0.10 0</pose>
+      <pose>0.155 0 0.18 0 0.45 0</pose>
       <visualize>false</visualize>
       <camera>
         <horizontal_fov>1.5</horizontal_fov>
