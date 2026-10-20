@@ -33,7 +33,6 @@ yolo_ws/pose_predict_viz_sample*/
 # Local editor/system files
 .vscode/
 .DS_Store
-*:Zone.Identifier
 # C extensions
 *.so
 
@@ -202,5 +201,7 @@ __pycache__/
 *.pyc
 
 # Windowsの付加ファイル
+# ADS は "name:Zone.Identifier" という形で届くため、拡張子パターンだけでは
+# 一致しない（実測: command.log:Zone.Identifier が追跡されたままだった）
 *.Zone.Identifier
-*.Zone.Identifier:Zone.Identifier
+*:Zone.Identifier
