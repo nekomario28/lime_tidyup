@@ -33,7 +33,7 @@ from tf2_ros import Buffer, TransformListener
 BASE_Z_OFFSET = 0.06
 
 
-def model_pose(name, attempts=1):
+def model_pose(name, attempts=3):
     """World pose of a Gazebo model (retried: gz model can time out)."""
     output = ''
     for _ in range(attempts):
@@ -143,11 +143,17 @@ def main():
     threading.Thread(target=rclpy.spin, args=(node,), daemon=True).start()
     time.sleep(1.5)
 
-    # No Gazebo queries at all: the robot does not move during the sweep, so
-    # base_link stays at its spawn pose, and the cube is spawned at a known
-    # distance. gz model is unreliable while the sim steps (it returns nothing
-    # often enough that a sweep built on it stalls), and neither number needs it.
-    robot = {'x': 0.02, 'y': 0.0, 'z': 0.0}
+    # The robot settles where physics puts it, which is not exactly the spawn pose:
+    # assuming 0.02 m here is a candidate explanation for sweeps that disagree with
+    # each other by about 8 cm. Ask Gazebo (retried) and fall back to the nominal
+    # pose only when it will not answer.
+    robot = model_pose('turtlebot3_lime_system')
+    if robot is None:
+        print('robot pose unavailable; assuming base_link at x=0.02')
+        robot = {'x': 0.02, 'y': 0.0, 'z': 0.0}
+    else:
+        print('robot base at x=%.4f y=%.4f z=%.4f'
+              % (robot.get('x', 0.0), robot.get('y', 0.0), robot.get('z', 0.0)))
     rows = []
     for distance in arguments.distances:
         spawn_cube(distance)
@@ -187,16 +193,34 @@ def main():
         robot_world = [robot['x'], robot['y'], robot['z'] + BASE_Z_OFFSET]
         truth = [truth_world[i] - robot_world[i] for i in range(3)]
         error = math.dist(measured, truth)
+        face_pose = None
+        for detection in result.get('detections', []):
+            candidate = detection.get('pose_3d_face') or {}
+            if len(candidate.get('position_m') or []) == 3:
+                face_pose = candidate
+                break
+        face_error = None
+        if face_pose is not None:
+            face_position = node.to_base_link(face_pose['position_m'],
+                                              face_pose['frame_id'])
+            if face_position is not None:
+                face_error = math.dist(face_position, truth)
+                row.update(face_geometry=face_pose.get('geometry_id'),
+                           face=[round(v, 4) for v in face_position],
+                           face_error_m=round(face_error, 4),
+                           face_visible=face_pose.get('visible_face'),
+                           face_color=face_pose.get('face_color_label'))
         row.update(status='ok', confidence=confidence,
                    geometry=pose.get('geometry_id'),
                    measured=[round(v, 4) for v in measured],
                    truth=[round(v, 4) for v in truth],
                    error_m=round(error, 4))
         rows.append(row)
-        print('d=%.2f  %-16s conf %.2f  measured %s  truth %s  err %.4f m'
-              % (distance, pose.get('geometry_id'), confidence,
-                 [round(v, 3) for v in measured],
-                 [round(v, 3) for v in truth], error))
+        print('d=%.2f  %-16s err %.4f m   face %-3s/%s err %s'
+              % (distance, pose.get('geometry_id'), error,
+                 (row.get('face_visible') or '-'),
+                 (row.get('face_color') or '-'),
+                 'none' if face_error is None else '%.4f m' % face_error))
 
     print('\nsummary')
     for row in rows:

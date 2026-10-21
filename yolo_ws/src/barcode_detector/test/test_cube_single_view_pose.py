@@ -4,11 +4,10 @@ import math
 import numpy as np
 import pytest
 
-from barcode_detector.cube_face_colors import _face_corner_object_points, REFERENCE_RGB
+from barcode_detector.cube_face_colors import _face_corner_object_points
 from barcode_detector.cube_single_view_pose import (
     FacePoseError,
     estimate_face_pose,
-    face_lab,
     face_quad_corners,
     rotate_in_plane,
 )
@@ -49,8 +48,9 @@ def test_rotate_in_plane_cycles_four_times():
 
 def test_quad_corners_are_four_and_ordered():
     image, pixels = render_face()
-    quad = face_quad_corners(image, (pixels[:, 0].min() - 2, pixels[:, 1].min() - 2,
-                                    pixels[:, 0].max() + 2, pixels[:, 1].max() + 2))
+    box = (pixels[:, 0].min() - 2, pixels[:, 1].min() - 2,
+           pixels[:, 0].max() + 2, pixels[:, 1].max() + 2)
+    quad = face_quad_corners(image, box)
     assert len(quad) == 4
     centre = quad.mean(axis=0)
     angles = [math.atan2(point[1] - centre[1], point[0] - centre[0]) for point in quad]

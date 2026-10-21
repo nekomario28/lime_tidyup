@@ -80,7 +80,7 @@ class YoloPoseNode(Node):
         #: being guessed per consumer.
         self.declare_parameter('depth_pose_bias_m', '0,0,0')
         #: Off for the calibration sweep, so the raw bias is measurable.
-        self.declare_parameter('depth_pose_half_side', False)
+        self.declare_parameter('depth_pose_half_side', True)
         # Normalised perception ROI for the depth blob ("x0,y0,x1,y1" in 0..1).
         # The arm is inside the same working-distance band as the cube, so the
         # two merge into one blob unless the search is bounded; a real
@@ -120,6 +120,7 @@ class YoloPoseNode(Node):
         )
         self.latest_depth = None
         self.depth_frame_id = ''
+        self.latest_depth_stamp = None
         self.depth_camera_info = None
         self.latest_image_width = 0
         self.latest_image_height = 0
@@ -258,6 +259,8 @@ class YoloPoseNode(Node):
                 return
             self.latest_depth = depth
             self.depth_frame_id = msg.header.frame_id
+            self.latest_depth_stamp = msg.header.stamp.sec + (
+                msg.header.stamp.nanosec * 1e-9)
         except Exception as error:  # noqa: BLE001 - never kill the callback
             self.get_logger().warning(f'depth decode failed: {error}')
 
@@ -272,6 +275,12 @@ class YoloPoseNode(Node):
     def depth_info_callback(self, msg):
         """Keep the depth intrinsics (the colour ones may be a different camera)."""
         self.depth_camera_info = msg
+
+    def depth_age_seconds(self, timestamp):
+        """How old the depth frame is compared with the colour frame."""
+        if self.latest_depth_stamp is None:
+            return float('nan')
+        return abs(float(timestamp) - float(self.latest_depth_stamp))
 
     def _depth_centre_pose(self, box_xyxy, timestamp):
         """Cube centre from the box plus depth, in the depth optical frame.
@@ -327,17 +336,17 @@ class YoloPoseNode(Node):
         v = 0.5 * (y0 + y1) * scale_y
         point = [(u - cx) * distance / fx, (v - cy) * distance / fy, distance]
         # The samples land on the face facing the camera, so the centre is half a
-        # side behind it, along that face's normal (the camera's horizontal
-        # forward). Measured against ground truth the uncorrected pose was a
-        # constant 2.9 cm *far* at 0.4-1.0 m, i.e. one half side (0.057/2), and the
-        # direction had to be calibrated: adding (0, -sin, cos) in the optical
-        # frame moved the point 2.6 cm the wrong way, so the effective normal in
-        # the published frame is (0, +sin, -cos).
-        half_side = 0.5 * float(self.get_parameter('cube_side_length_m').value)
-        pitch = float(self.get_parameter('camera_pitch_rad').value)
+        # side *further along the measured ray*. Measured against the robot's real
+        # pose the uncorrected error is a constant 2.94-3.02 cm at 0.4-1.0 m, i.e.
+        # exactly one half side (0.057/2 = 2.85 cm); the earlier 1-8 cm swings came
+        # from assuming base_link sat at x = 0.02 when it settles near 0.00.
+        # Scaling the ray point is exact for a fronto-parallel face at any pitch:
+        # adding a fixed vector instead was measured to move the point backwards.
         if self.get_parameter('depth_pose_half_side').value:
-            point[1] += half_side * math.sin(pitch)
-            point[2] -= half_side * math.cos(pitch)
+            half_side = 0.5 * float(
+                self.get_parameter('cube_side_length_m').value)
+            scale = (distance + half_side) / distance
+            point = [value * scale for value in point]
         bias = [float(value) for value in
                 str(self.get_parameter('depth_pose_bias_m').value).split(',')]
         if len(bias) == 3:
@@ -680,6 +689,14 @@ class YoloPoseNode(Node):
                     detection['pose_evidence']['pose_reason'] = (
                         'two-face pose unavailable; centre measured from depth'
                     )
+                self.get_logger().debug(
+                    'ingredients box=%s depth=%s face=%s stamp_delta=%.3f'
+                    % ([round(v, 1) for v in box.box_xyxy],
+                       None if depth_pose is None
+                       else [round(v, 3) for v in depth_pose['position_m']],
+                       None if face_pose is None
+                       else [round(v, 3) for v in face_pose['position_m']],
+                       self.depth_age_seconds(timestamp)))
                 if face_pose is not None:
                     detection['pose_3d_face'] = face_pose
                     detection['pose_evidence']['face_pose_status'] = (
