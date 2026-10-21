@@ -168,9 +168,12 @@ def main():
 
         # truth: the spawn pose, expressed in the camera frame
         truth_base = np.asarray([distance - ROBOT_X, 0.0, SIDE / 2.0 - BASE_Z])
+        # camera_pose() returns the transform of base_link expressed in the camera
+        # frame, so a point maps as p_camera = R @ p_base + t. The inverse form was
+        # used first, which put the cube behind the camera for a level mount.
         rotation = quaternion_matrix(camera_quaternion)
-        truth_camera = rotation.T @ (truth_base - np.asarray(camera_position))
-        truth_orientation = pose_from_matrix(rotation.T)
+        truth_camera = rotation @ truth_base + np.asarray(camera_position)
+        truth_orientation = pose_from_matrix(rotation)
 
         results = {}
         cases = {

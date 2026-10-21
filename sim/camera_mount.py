@@ -12,8 +12,16 @@ drive the static TF (sim/camera_tf.py), so images, depth and TF agree by
 construction.
 """
 MOUNT_LINK = 'sim_camera_mount'
-OFFSET_XYZ = (0.155, 0.0, 0.18)
-OFFSET_RPY = (0.0, 0.45, 0.0)
+#: Where the RealSense sits on the real robot: between the two sandwich plates at
+#: the front, low, about the cube's own height, and level. The upstream simulated
+#: camera in practice_ws/worlds/*.world carries exactly this pose
+#: (0.05915 0 0.0583 0 0 0), which is 0.059 m forward of base_link, at base_link's
+#: height (base_link is 0.06 m above the floor, so -0.002 puts the lens just above
+#: the cube) with no tilt. An earlier value here (0.155 forward, 0.18 up, 26 deg
+#: down) was invented, and every measurement made on top of it described a camera
+#: the robot does not have.
+OFFSET_XYZ = (0.059, 0.0, -0.002)
+OFFSET_RPY = (0.0, 0.0, 0.0)
 
 
 def add_mount(urdf):
