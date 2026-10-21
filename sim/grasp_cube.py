@@ -253,6 +253,33 @@ class Grasper(Node):
     def on_result(self, msg):
         self.latest = msg.data
 
+    def wait_for_pose(self, timeout=6.0, maximum_age=3.0):
+        """The latest cube pose, provided it is recent enough to act on.
+
+        Requiring a *newer* message than the last one was tried and deadlocked: the
+        publisher pauses for tens of seconds at a time (measured: a 73 s gap while
+        the base was being driven), so every check timed out and the loop kept
+        re-issuing the same move. Age is the honest test -- the pose carries the
+        node's own timestamp, on this clock.
+        """
+        deadline = time.time() + timeout
+        while time.time() < deadline:
+            if self.latest:
+                data = json.loads(self.latest)
+                age = time.time() - float(data.get('timestamp') or 0.0)
+                if age <= float(maximum_age):
+                    best = None
+                    for detection in data.get('detections', []):
+                        pose = (detection.get('pose_3d_face')
+                                or detection.get('pose_3d') or {})
+                        if len(pose.get('position_m') or []) == 3:
+                            if best is None or detection['confidence'] > best[0]:
+                                best = (detection['confidence'], pose)
+                    if best is not None:
+                        return best[1]
+            time.sleep(0.1)
+        return None
+
     def wait_for_cube(self, timeout=20.0):
         deadline = time.time() + timeout
         while time.time() < deadline:
@@ -527,23 +554,64 @@ def main():
     node.get_logger().info('pads at %s, error (%.3f, %.3f, %.3f) m'
                            % ([round(v, 3) for v in pads], *error))
 
-    # Relative positioning, computed once. The pads must sit FINGER_REACH_M behind
-    # the cube centre along the approach, so the move is the signed difference
-    # between that target and where the pads actually are: clamped and issued once.
-    # The previous version re-measured and re-drove after every failed close, and
-    # whenever the pads had overshot the sign flipped -- which is the shuffling
-    # backwards that showed up in the recordings.
+    # Verify before closing, and adjust between attempts. The cube pose is
+    # re-read after every move (a message newer than the one we just used), the
+    # pads are measured from TF, and the residual between them drives the base.
+    # Closing only happens once the residual is inside tolerance, so a short or
+    # long drive cannot end in a blind squeeze.
     pads_target = point[0] - FINGER_REACH_M
-    drive_m = max(-0.08, min(0.08, pads_target - pads[0]))
-    if abs(drive_m) > 0.005:
+    tolerance_m = 0.012
+    verified = False
+    last_drive = 0.0
+    for attempt in range(4):
+        pads = node.fingertip_midpoint()
+        if pads is None:
+            raise SystemExit('no fingertip transform')
+        fresh = node.wait_for_pose()
+        if fresh is None:
+            # The publisher stops while the base is driven (measured: a 73 s gap),
+            # so waiting for it deadlocked the loop and it re-issued the same move.
+            # The commanded motion is known and accurate (0.05 m/s for 2 s moved
+            # 0.098 m): apply it to the target directly and say so.
+            node.get_logger().info(
+                'no fresh pose; applying the commanded %.3f m to the target'
+                % last_drive)
+        else:
+            point = node.to_base_link(fresh)
+            pads_target = point[0] - FINGER_REACH_M
+            node.get_logger().info(
+                're-measured cube at %.3f %.3f %.3f (%s)'
+                % (point[0], point[1], point[2],
+                   fresh.get('geometry_id', '?')))
+            last_drive = 0.0
+        # Always recompute from `point`: when the pose was not refreshed, `point`
+        # is the analytically advanced target, and using the old pads_target made
+        # the loop re-issue the same move (measured: four identical "dx 0.049").
+        pads_target = point[0] - FINGER_REACH_M
+        residual_x = pads_target - pads[0]
+        residual_y = point[1] - pads[1]
         node.get_logger().info(
-            'pads %.3f -> target %.3f: driving %+.3f m (%s)'
-            % (pads[0], pads_target, drive_m,
-               'forward' if drive_m > 0 else 'backing off'))
-        node.drive_forward(drive_m, speed=0.03)
-        time.sleep(0.5)
-    else:
-        node.get_logger().info('pads already at the target (%.3f m)' % pads[0])
+            'check %d: pads %.3f target %.3f -> dx %.3f, dy %.3f'
+            % (attempt + 1, pads[0], pads_target, residual_x, residual_y))
+        if abs(residual_x) <= tolerance_m and abs(residual_y) <= 0.015:
+            verified = True
+            node.get_logger().info(
+                'verified: pads within %.0f mm of the cube centre'
+                % (tolerance_m * 1000))
+            break
+        drive_m = max(-0.06, min(0.06, residual_x))
+        if abs(drive_m) > 0.004:
+            node.get_logger().info('adjusting base by %+.3f m' % drive_m)
+            node.drive_forward(drive_m, speed=0.03)
+            # moving forward by d brings the cube d closer, in base_link terms
+            point[0] -= drive_m
+            last_drive = drive_m
+            time.sleep(0.6)
+
+    if not verified:
+        node.get_logger().warn(
+            'could not verify the pads around the cube; closing anyway and '
+            'recording what happens')
 
     # One slow close. If the jaws pass each other the answer is "missed", not
     # another creep: hunting moves the base without improving the aim.
