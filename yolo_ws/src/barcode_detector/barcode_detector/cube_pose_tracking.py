@@ -217,8 +217,6 @@ def refine_pose_from_silhouette(
     minimum_keypoint_confidence=0.5,
 ):
     """Return (pose, evidence) refined from the silhouette around the prior."""
-    import cv2
-
     seed, _seed_area = colour_mask(image_bgr)
     mask, area = object_mask(image_bgr, seed)
     corners, contour = silhouette_corners(mask)
