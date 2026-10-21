@@ -70,6 +70,16 @@ class YoloPoseNode(Node):
         self.declare_parameter('depth_pose_enabled', True)
         self.declare_parameter('depth_pose_minimum_valid_fraction', 0.30)
         self.declare_parameter('depth_pose_maximum_mad_m', 0.02)
+        #: Downward pitch of the camera in base_link, used to turn the measured
+        #: face point into the cube centre (see _depth_centre_pose).
+        self.declare_parameter('camera_pitch_rad', 0.45)
+        #: Constant offset added to the depth-centre position, in the published
+        #: frame. Calibrated against ground truth by sim/eval_cube_recognition.py;
+        #: the residual is systematic, so it belongs in one parameter rather than
+        #: being guessed per consumer.
+        self.declare_parameter('depth_pose_bias_m', '0,0,0')
+        #: Off for the calibration sweep, so the raw bias is measurable.
+        self.declare_parameter('depth_pose_half_side', False)
         # Normalised perception ROI for the depth blob ("x0,y0,x1,y1" in 0..1).
         # The arm is inside the same working-distance band as the cube, so the
         # two merge into one blob unless the search is bounded; a real
@@ -313,6 +323,23 @@ class YoloPoseNode(Node):
             return None
         u = 0.5 * (x0 + x1) * scale_x
         v = 0.5 * (y0 + y1) * scale_y
+        point = [(u - cx) * distance / fx, (v - cy) * distance / fy, distance]
+        # The samples land on the face facing the camera, so the centre is half a
+        # side behind it, along that face's normal (the camera's horizontal
+        # forward). Measured against ground truth the uncorrected pose was a
+        # constant 2.9 cm *far* at 0.4-1.0 m, i.e. one half side (0.057/2), and the
+        # direction had to be calibrated: adding (0, -sin, cos) in the optical
+        # frame moved the point 2.6 cm the wrong way, so the effective normal in
+        # the published frame is (0, +sin, -cos).
+        half_side = 0.5 * float(self.get_parameter('cube_side_length_m').value)
+        pitch = float(self.get_parameter('camera_pitch_rad').value)
+        if self.get_parameter('depth_pose_half_side').value:
+            point[1] += half_side * math.sin(pitch)
+            point[2] -= half_side * math.cos(pitch)
+        bias = [float(value) for value in
+                str(self.get_parameter('depth_pose_bias_m').value).split(',')]
+        if len(bias) == 3:
+            point = [point[i] + bias[i] for i in range(3)]
         return {
             'geometry_id': 'depth-centre-v1',
             'frame_id': info.header.frame_id or self.depth_frame_id,
@@ -320,11 +347,7 @@ class YoloPoseNode(Node):
             'side_length_m': float(
                 self.get_parameter('cube_side_length_m').value
             ),
-            'position_m': [
-                (u - cx) * distance / fx,
-                (v - cy) * distance / fy,
-                distance,
-            ],
+            'position_m': point,
             'orientation_xyzw': [0.0, 0.0, 0.0, 1.0],
             'reprojection_error_px': None,
             'correspondence_count': int(valid.size),
