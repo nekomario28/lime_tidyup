@@ -51,6 +51,10 @@ EE_TO_PADS_M = 0.0443      # end_effector_link sits this far past the finger pad
 #: 0.022 m of forward reach beyond the point TF reports, which is exactly the
 #: gap that made the jaws close on air (0.05 assumed) or shove the cube (0.0).
 FINGER_REACH_M = 0.022
+#: Where the cube should sit in base_link when the arm takes its pose. The tree
+#: leaves it near 0.29 m, and at that distance the only IK-feasible orientation
+#: cannot bring the pads down to the cube's height; closer, the arm has room.
+GRASP_TARGET_DISTANCE_M = 0.24
 GRIPPER_CLOSED = -0.010
 GRIPPER_EFFORT = 6.0
 # Measured with the sim's own IK service at the post-approach pose (cube 0.31 m
@@ -489,6 +493,17 @@ def main():
     # then travel with the base and land on the cube without a second IK call.
     del creep_m
 
+    # Close the range before posing: from where the tree leaves the robot the arm
+    # cannot bring its pads down to the cube, and closer it can. The command is
+    # measured (0.05 m/s for 2 s moved 0.098 m), so the target is advanced by it.
+    if point[0] > GRASP_TARGET_DISTANCE_M:
+        approach = min(0.06, point[0] - GRASP_TARGET_DISTANCE_M)
+        node.get_logger().info('closing range by %.3f m to %.2f m'
+                               % (approach, point[0] - approach))
+        node.drive_forward(approach, speed=0.03)
+        point[0] -= approach
+        time.sleep(0.5)
+
     # Aim the pads at the cube centre. With the palm pitched by p, the pads lie
     # EE_TO_PADS_M ahead of end_effector_link along the tool axis, i.e. the
     # effector has to sit behind the cube by that much sin(p) and below it by
@@ -559,7 +574,6 @@ def main():
     # pads are measured from TF, and the residual between them drives the base.
     # Closing only happens once the residual is inside tolerance, so a short or
     # long drive cannot end in a blind squeeze.
-    pads_target = point[0] - FINGER_REACH_M
     tolerance_m = 0.012
     verified = False
     last_drive = 0.0
@@ -613,16 +627,39 @@ def main():
             'could not verify the pads around the cube; closing anyway and '
             'recording what happens')
 
-    # One slow close. If the jaws pass each other the answer is "missed", not
-    # another creep: hunting moves the base without improving the aim.
-    position, stalled = node.close_slowly()
-    node.get_logger().info('close: gripper at %s stalled=%s'
-                           % ('unknown' if position is None else '%.4f' % position,
-                              stalled))
-    if stalled:
-        node.get_logger().info('fingers stopped on the cube: gripping')
-    else:
-        node.get_logger().warn('the jaws passed each other: missed the cube')
+    # Then close the height: the pads arrive at the cube's top edge, so try going
+    # lower, one centimetre at a time, re-solving with the pitch ladder each time.
+    # IK refuses past a point (measured -31), which is itself the answer about how
+    # far this arm can reach down.
+    for lower in range(4):
+        position, stalled = node.close_slowly()
+        node.get_logger().info('close: gripper at %s stalled=%s'
+                               % ('unknown' if position is None
+                                  else '%.4f' % position, stalled))
+        if stalled:
+            node.get_logger().info('fingers stopped on the cube: gripping')
+            break
+        node.get_logger().info('jaws closed empty; lowering the aim by 1 cm')
+        node.send_gripper(0.019)
+        time.sleep(0.6)
+        target[2] -= 0.01
+        solved = None
+        for pitch_deg in (120.0, 105.0, 135.0, 150.0):
+            solved = node.solve_ik(target, pitch_quat(pitch_deg))
+            if solved is not None:
+                node.get_logger().info('lowered: pitch %.0f at %s'
+                                       % (pitch_deg,
+                                          [round(v, 3) for v in target]))
+                break
+        if solved is None:
+            node.get_logger().warn(
+                'ik will not go %.2f m lower; this arm cannot reach the cube '
+                'from this distance' % (0.01 * (lower + 1)))
+            break
+        joints = solved
+        node.send_arm(joints, seconds=4.0)
+        time.sleep(0.8)
+
     time.sleep(1.0)
 
     lifted = list(joints)
