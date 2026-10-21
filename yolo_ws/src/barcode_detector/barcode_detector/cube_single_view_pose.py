@@ -23,9 +23,17 @@ import math
 import numpy as np
 
 from .cube_face_colors import FACE_NORMALS, classify_lab
+from .cube_pose_hypotheses import STANDARD_FACE_COLORS
 from .cube_face_colors import _face_corner_object_points
 
 FACE_NAMES = tuple(FACE_NORMALS.keys())
+
+#: The coloured plates cover 3 facelets on a pitch of 0.0174 m with 0.0162 m
+#: plates, i.e. 0.051 m of a 0.057 m face (rubik_pose_cube: FACELET_SIZE_M,
+#: FACELET_GAP_M). The detected quad is the *plate field*, not the face's outer
+#: edge, so solving it as a full face overestimates the distance by 1/0.895 =
+#: 11.7 percent -- measured as 2.5 cm at 0.4 m growing to 10.5 cm at 1.0 m.
+STICKER_FRACTION = 0.895
 
 
 class FacePoseError(ValueError):
@@ -100,21 +108,110 @@ def rotate_in_plane(corners, axis, quarter_turns):
     return result
 
 
+#: OpenCV hue centres for the cube colours (red wraps through 0).
+HUE_CENTRES = {'red': 3.0, 'orange': 16.0, 'yellow': 30.0, 'green': 60.0,
+               'blue': 110.0}
+#: Kept at the blob source's tolerance. Tightening it to 8 to stop red (3) and
+#: orange (16) overlapping was measured and is worse: the mask loses too many
+#: plates, the quad becomes unstable and the face is misidentified (27 cm at 1 m
+#: against 6.6 cm at 12).
+HUE_TOLERANCE = 12.0
+MINIMUM_SATURATION = 90
+MINIMUM_VALUE = 40
+
+
+def face_quad_from_color(image_bgr, bbox_xyxy, color):
+    """Tight quad of one colour's region inside the box, without the blob margin.
+
+    The frontend fits a face to its own colour mask, but it needs two visible faces
+    to bootstrap and refuses when only one is visible -- which is the real mount's
+    situation. This is the same idea for a single named colour: mask that hue,
+    take the largest component, and fit its corners.
+    """
+    import cv2
+
+    centre = HUE_CENTRES.get(color)
+    if centre is None:
+        return None
+    image = np.asarray(image_bgr)
+    x0, y0, x1, y1 = (int(round(float(value))) for value in bbox_xyxy)
+    x0, y0 = max(0, x0), max(0, y0)
+    x1, y1 = min(image.shape[1], x1), min(image.shape[0], y1)
+    if x1 - x0 < 6 or y1 - y0 < 6:
+        return None
+    crop = image[y0:y1, x0:x1]
+    hsv = cv2.cvtColor(crop, cv2.COLOR_BGR2HSV)
+    hue = hsv[:, :, 0].astype(np.float32)
+    distance = np.minimum(np.abs(hue - centre), 180.0 - np.abs(hue - centre))
+    mask = ((hsv[:, :, 1] >= MINIMUM_SATURATION)
+            & (hsv[:, :, 2] >= MINIMUM_VALUE)
+            & (distance <= HUE_TOLERANCE)).astype(np.uint8) * 255
+    mask = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, np.ones((5, 5), np.uint8))
+    contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL,
+                                   cv2.CHAIN_APPROX_SIMPLE)
+    if not contours:
+        return None
+    contour = max(contours, key=cv2.contourArea)
+    if cv2.contourArea(contour) < 40.0:
+        return None
+    perimeter = cv2.arcLength(contour, True)
+    quad = cv2.approxPolyDP(contour, 0.03 * perimeter, True).reshape(-1, 2)
+    if len(quad) != 4:
+        quad = cv2.boxPoints(cv2.minAreaRect(contour))
+    return np.asarray(quad, dtype=np.float64) + np.asarray([x0, y0])
+
+
+def quad_from_frontend(image_bgr, bbox_xyxy):
+    """Tight face quad and colour from the two-face frontend, if it resolves one.
+
+    The colour blob's bbox carries a 25 percent margin, so using it as the face
+    quad makes the quad larger than the face -- that was one of the two reasons the
+    first version failed. The two-face frontend already fits each visible face to
+    its own mask and snaps it to the silhouette, so its vertices are the right
+    corners, and it names the colour at the same time.
+    """
+    from .cube8_two_face_color_frontend import (
+        Cube8TwoFaceColorError, recover_two_face_view_local_from_bgr)
+
+    try:
+        observation = recover_two_face_view_local_from_bgr(image_bgr, bbox_xyxy)
+    except Cube8TwoFaceColorError:
+        return None, None
+    best = None
+    for color, quad in observation.face_quads.items():
+        support = int(observation.support_pixels.get(color, 0))
+        if best is None or support > best[0]:
+            best = (support, color, quad.vertices)
+    if best is None:
+        return None, None
+    return np.asarray(best[2], dtype=np.float64), best[1]
+
+
 def estimate_face_pose(
     image_bgr,
     camera_matrix,
     bbox_xyxy,
     *,
     side_length_m=0.057,
+    sticker_fraction=STICKER_FRACTION,
     distortion=(),
     maximum_reprojection_error_px=4.0,
 ):
     """Return (pose, evidence) for the face visible inside the box."""
     import cv2
 
-    corners = face_quad_corners(image_bgr, bbox_xyxy)
     lab = face_lab(image_bgr, bbox_xyxy)
     label = classify_lab(lab)
+    corners, quad_source = quad_from_frontend(image_bgr, bbox_xyxy)
+    if corners is not None:
+        quad_source = 'two_face_frontend'
+    else:
+        # The frontend needs two faces; with one visible, fit that colour's own
+        # mask instead of the margin-inflated blob box.
+        corners = face_quad_from_color(image_bgr, bbox_xyxy, label) if label else None
+        quad_source = 'face_color_mask' if corners is not None else 'blob_mask'
+        if corners is None:
+            corners = face_quad_corners(image_bgr, bbox_xyxy)
     k = np.asarray(camera_matrix, dtype=np.float64).reshape(3, 3)
     image_points = corners.astype(np.float64)
 
@@ -124,6 +221,12 @@ def estimate_face_pose(
                                                           side_length_m)
         axis = [index for index in range(3)
                 if abs(FACE_NORMALS[face_name][index]) > 0.5][0]
+        # shrink the in-plane axes to the plate field, keeping the cube centre at
+        # the origin and the face's own plane where it is
+        corners_object = [
+            tuple(value * float(sticker_fraction) if index != axis else value
+                  for index, value in enumerate(point))
+            for point in corners_object]
         for turns in range(4):
             object_points = np.asarray(
                 rotate_in_plane(corners_object, axis, turns), dtype=np.float64)
@@ -160,26 +263,44 @@ def estimate_face_pose(
             if error > float(maximum_reprojection_error_px):
                 continue
             rotation, _ = cv2.Rodrigues(rvec)
+            # A face whose normal points away from the camera cannot be the one we
+            # see: drop it before the colour is consulted, so the colour only has
+            # to choose between the faces that face us.
+            normal_object = np.asarray(FACE_NORMALS[face_name], dtype=np.float64)
+            normal_camera = rotation @ normal_object
+            to_camera = -np.asarray(tvec.reshape(-1), dtype=np.float64)
+            if float(np.dot(normal_camera, to_camera)) <= 0.0:
+                continue
             orientation = _quaternion_from_matrix(rotation)
             hypotheses.append({
                 'face': face_name,
+                'face_color': STANDARD_FACE_COLORS.get(face_name),
                 'quarter_turns': turns,
                 'reprojection_error_px': error,
                 'position_m': [float(value) for value in tvec.reshape(-1)],
                 'orientation_xyzw': orientation,
                 'color_label': label,
-                'color_matches': label is not None and label == face_name,
+                # label is a colour ("orange"), face is an axis ("-x"): compare
+                # through the colour convention, not directly (that mistake made
+                # every hypothesis look unmatched).
+                'color_matches': (label is not None
+                                  and STANDARD_FACE_COLORS.get(face_name) == label),
             })
 
     if not hypotheses:
         raise FacePoseError('no face hypothesis reprojects within '
                             '%.1f px' % maximum_reprojection_error_px)
 
+    # Colour first, geometry second: the label says which face is visible, and only
+    # then does reprojection choose among that face's in-plane rotations. Selecting
+    # on reprojection first let a wrong face survive (measured: -y chosen while the
+    # colour said orange).
     matching = [item for item in hypotheses if item['color_matches']]
     pool = matching or hypotheses
     pool.sort(key=lambda item: item['reprojection_error_px'])
     best = pool[0]
     evidence = {
+        'quad_source': quad_source,
         'face_color_label': label,
         'face_color_lab': [round(value, 1) for value in lab],
         'hypotheses': len(hypotheses),
