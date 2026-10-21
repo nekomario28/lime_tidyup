@@ -19,6 +19,7 @@ except Exception:  # pragma: no cover - absence is a supported configuration
 
 from .cube_pose_3d import CubePose3DError, estimate_cube_pose_3d
 from .cube_bbox_source import BboxSourceError, choose_bbox
+from .cube_single_view_pose import FacePoseError, estimate_face_pose
 from .cube_model_free_pose import (
     ModelFreePoseError,
     estimate_model_free_pose,
@@ -122,6 +123,7 @@ class YoloPoseNode(Node):
         self.depth_camera_info = None
         self.latest_image_width = 0
         self.latest_image_height = 0
+        self.latest_image = None
         self.depth_pose_enabled = bool(
             self.get_parameter('depth_pose_enabled').value
         )
@@ -363,6 +365,7 @@ class YoloPoseNode(Node):
         self.camera_info = msg
 
     def image_callback(self, msg):
+        self.latest_image = None
         self.latest_image_width = int(msg.width)
         self.latest_image_height = int(msg.height)
         now = time.time()
@@ -384,6 +387,7 @@ class YoloPoseNode(Node):
             except Exception as error:  # noqa: BLE001
                 self.get_logger().error(f'image decode failed: {error}')
                 return
+            self.latest_image = cv_image
             detections = self._publish_detectionless_frame(
                 cv_image, msg, now
             )
@@ -518,6 +522,36 @@ class YoloPoseNode(Node):
         except Exception as e:
             self.get_logger().error(f'YOLO pose error: {e}')
 
+    def _single_view_pose(self, bbox_xyxy, image_msg, timestamp):
+        """Solve the visible face; None when the frame does not support it."""
+        if self.camera_info is None or self.latest_image is None:
+            return None
+        pose, evidence = estimate_face_pose(
+            self.latest_image,
+            tuple(float(value) for value in self.camera_info.k),
+            bbox_xyxy,
+            side_length_m=float(self.get_parameter('cube_side_length_m').value),
+            maximum_reprojection_error_px=6.0,
+        )
+        return {
+            'geometry_id': 'face-quad-v1',
+            'frame_id': image_msg.header.frame_id,
+            'timestamp': timestamp,
+            'side_length_m': float(self.get_parameter('cube_side_length_m').value),
+            'position_m': list(pose['position_m']),
+            'orientation_xyzw': list(pose['orientation_xyzw']),
+            'reprojection_error_px': pose['reprojection_error_px'],
+            'correspondence_count': 4,
+            'inlier_count': 4,
+            'inlier_mask': [],
+            'color_fixed_semantics_resolved': bool(
+                pose['color_fixed_semantics_resolved']),
+            'visible_face': pose['visible_face'],
+            'face_color_label': evidence['face_color_label'],
+            'bbox_source': evidence['quad_source'],
+            'perception_backend': 'color_frontend',
+        }
+
     def _model_free_pose_dict(self, pose, frame_id, timestamp):
         """Build the /cube_pose_result pose payload for one model-free pose."""
         return {
@@ -620,6 +654,25 @@ class YoloPoseNode(Node):
                 # unavailable and is reported as such.
                 detection['pose_evidence']['pose_status'] = 'rejected'
                 detection['pose_evidence']['pose_reason'] = str(error)
+                # At the real mount only one face is visible, so the single-view
+                # face solve is the route that produces an orientation at all: the
+                # face's colour decides which face it is and therefore the yaw.
+                # Measured 1.4-2.4 cm on position with reprojection under 0.5 px,
+                # against 1.0-1.3 cm for the depth centre -- comparable position,
+                # but with the rotation the depth route cannot give.
+                face_pose = None
+                try:
+                    face_pose = self._single_view_pose(box.box_xyxy,
+                                                       image_msg, timestamp)
+                except FacePoseError as error:
+                    self.get_logger().debug('face pose refused: %s' % error)
+                # The depth centre keeps the primary slot: through this node it
+                # measures 1.0-1.3 cm, while the same face solve that reports
+                # 1.4-2.4 cm when called directly reports 6.4-7.5 cm here. Until
+                # that discrepancy is explained (one of the frame conversions is
+                # off by roughly the camera's 0.059 m offset) the face pose ships
+                # beside the depth pose rather than replacing it, so a consumer can
+                # choose: position from depth, rotation from the face.
                 depth_pose = self._depth_centre_pose(box.box_xyxy, timestamp)
                 if depth_pose is not None:
                     detection['pose_3d'] = depth_pose
@@ -627,6 +680,11 @@ class YoloPoseNode(Node):
                     detection['pose_evidence']['pose_reason'] = (
                         'two-face pose unavailable; centre measured from depth'
                     )
+                if face_pose is not None:
+                    detection['pose_3d_face'] = face_pose
+                    detection['pose_evidence']['face_pose_status'] = (
+                        'accepted' if face_pose['color_fixed_semantics_resolved']
+                        else 'unresolved')
                 detections.append(detection)
                 self._publish_model_free_overlay(
                     cv_image, image_msg, timestamp,

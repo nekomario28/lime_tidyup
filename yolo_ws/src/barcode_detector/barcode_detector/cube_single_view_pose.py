@@ -161,6 +161,49 @@ def face_quad_from_color(image_bgr, bbox_xyxy, color):
     return np.asarray(quad, dtype=np.float64) + np.asarray([x0, y0])
 
 
+def measure_sticker_span(image_bgr, bbox_xyxy, corners, side_length_m):
+    """Physical size of the detected colour region, measured from the frame.
+
+    The detector reports the sticker field, and the model says that field is 0.051
+    of a 0.057 face -- but solving at that fixed ratio left a residual that behaved
+    like a scale error (measured 4-7 cm), because the mask can merge plates from two
+    faces. The ratio is measurable instead of assumed: a fronto-parallel cube's
+    silhouette is exactly one side wide, so
+
+        span = side * (colour quad width in px) / (object silhouette width in px)
+
+    No search is needed. Returns a span in metres, clamped to a plausible band so a
+    bad silhouette cannot produce a nonsense pose.
+    """
+    import cv2
+
+    try:
+        from .cube_bbox_source import colour_blob_bbox  # noqa: F401  (rule reference)
+        from .cube_pose_tracking import colour_mask, object_mask
+    except Exception:  # noqa: BLE001
+        return None
+    try:
+        seed, _area = colour_mask(image_bgr)
+        mask, _object_area = object_mask(image_bgr, seed)
+    except Exception:  # noqa: BLE001
+        return None
+    contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+    if not contours:
+        return None
+    contour = max(contours, key=cv2.contourArea)
+    object_box = cv2.boundingRect(contour)
+    object_width = float(object_box[2])
+    if object_width < 4.0:
+        return None
+    sides = [float(np.linalg.norm(corners[(index + 1) % 4] - corners[index]))
+             for index in range(4)]
+    quad_width = 0.5 * (sides[0] + sides[2])
+    ratio = quad_width / object_width
+    span = float(side_length_m) * ratio
+    lower, upper = 0.5 * float(side_length_m), float(side_length_m)
+    return min(upper, max(lower, span))
+
+
 def quad_from_frontend(image_bgr, bbox_xyxy):
     """Tight face quad and colour from the two-face frontend, if it resolves one.
 
@@ -194,6 +237,7 @@ def estimate_face_pose(
     *,
     side_length_m=0.057,
     sticker_fraction=STICKER_FRACTION,
+    use_measured_span=False,
     distortion=(),
     maximum_reprojection_error_px=4.0,
 ):
@@ -202,6 +246,7 @@ def estimate_face_pose(
 
     lab = face_lab(image_bgr, bbox_xyxy)
     label = classify_lab(lab)
+    measured_span = None
     corners, quad_source = quad_from_frontend(image_bgr, bbox_xyxy)
     if corners is not None:
         quad_source = 'two_face_frontend'
@@ -212,6 +257,18 @@ def estimate_face_pose(
         quad_source = 'face_color_mask' if corners is not None else 'blob_mask'
         if corners is None:
             corners = face_quad_corners(image_bgr, bbox_xyxy)
+
+    # Measuring the span from the object silhouette was tried and is worse: the
+    # silhouette is not a reliable width reference at this mount (measured 12-37 cm
+    # error, growing with distance, because the object mask is wider than the cube
+    # face -- it takes in the shadow and the arm). Kept behind a flag for anyone
+    # with a cleaner segmentation; the fixed plate-field ratio is the default.
+    measured_span = None
+    if use_measured_span:
+        measured_span = measure_sticker_span(image_bgr, bbox_xyxy, corners,
+                                             side_length_m)
+        if measured_span is not None:
+            sticker_fraction = measured_span / float(side_length_m)
     k = np.asarray(camera_matrix, dtype=np.float64).reshape(3, 3)
     image_points = corners.astype(np.float64)
 
@@ -301,6 +358,9 @@ def estimate_face_pose(
     best = pool[0]
     evidence = {
         'quad_source': quad_source,
+        'sticker_span_m': (None if measured_span is None
+                           else round(float(measured_span), 4)),
+        'sticker_fraction': round(float(sticker_fraction), 3),
         'face_color_label': label,
         'face_color_lab': [round(value, 1) for value in lab],
         'hypotheses': len(hypotheses),
