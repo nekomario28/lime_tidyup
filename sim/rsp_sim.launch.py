@@ -54,6 +54,9 @@ GRIPPER_DAMPING = 0.02
 GRIPPER_FRICTION = 0.01
 
 
+GRASP_GRIP_COUNT = 2
+
+
 def tune_grasp(urdf):
     """Make the fingers able to hold a 57 mm cube by friction."""
     for name in ('gripper_left_link', 'gripper_right_link'):
@@ -74,6 +77,23 @@ def tune_grasp(urdf):
             )
 
         urdf = pattern.sub(patch, urdf)
+
+    # Measured in the sim: the plugin sees the cube (grip count 1, then 2) but the
+    # count never reaches the shipped threshold of 4, so the grasp is released
+    # instead of latched. Two consecutive observations is enough to hold.
+    urdf = re.sub(r'<grip_count_threshold>[0-9]+</grip_count_threshold>',
+                  '<grip_count_threshold>%d</grip_count_threshold>'
+                  % GRASP_GRIP_COUNT, urdf)
+
+    # The plugin reached the point of attaching, then dropped the cube: with
+    # disable_collisions_on_attach the contacts it counts disappear the moment it
+    # attaches, the count falls back to 0 and the grasp is released mid-lift
+    # (measured: "already attached" followed by "grip count: 0"). Keeping the
+    # contacts, and tolerating a small loss of them, makes the hold survive.
+    urdf = urdf.replace('<disable_collisions_on_attach>true</disable_collisions_on_attach>',
+                        '<disable_collisions_on_attach>false</disable_collisions_on_attach>')
+    urdf = re.sub(r'<release_tolerance>[0-9.]+</release_tolerance>',
+                  '<release_tolerance>0.05</release_tolerance>', urdf)
     return urdf
 
 
@@ -124,7 +144,8 @@ def generate_launch_description():
     if os.environ.get('CCCSIM_GRASP_TUNING', '1') != '0':
         robot_description = tune_grasp(robot_description)
         print('[rsp_sim] grasp tuning: pads mu=2.0, gripper effort %g N, '
-              'joint friction %g' % (GRIPPER_EFFORT, GRIPPER_FRICTION))
+              'joint friction %g, grip_count_threshold %d'
+              % (GRIPPER_EFFORT, GRIPPER_FRICTION, GRASP_GRIP_COUNT))
     else:
         print('[rsp_sim] grasp tuning: off')
 

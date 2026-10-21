@@ -390,7 +390,7 @@ class Grasper(Node):
                 # that threw the cube. Then hold still: gazebo_grasp_fix needs
                 # four contact observations at 4 Hz before it keeps the grip, so
                 # lifting immediately gives it nothing to hold.
-                for extra in range(2):
+                for extra in range(1):
                     position = max(GRIPPER_CLOSED, position - step)
                     goal = GripperCommand.Goal()
                     goal.command.position = float(position)
@@ -527,41 +527,34 @@ def main():
     node.get_logger().info('pads at %s, error (%.3f, %.3f, %.3f) m'
                            % ([round(v, 3) for v in pads], *error))
 
-    drive_m = error[0] - FINGER_REACH_M - 0.03
-    if drive_m > 0.005:
-        node.get_logger().info('driving %.3f m (gap %.3f less finger reach %.3f)'
-                               % (drive_m, error[0], FINGER_REACH_M))
-        node.drive_forward(drive_m, speed=0.02)
-    else:
-        node.get_logger().info('already at the cube: gap %.3f m <= finger reach'
-                               % error[0])
-    time.sleep(0.5)
-
-    # Creep-and-close: the jaws are wider than the cube when open, so creeping
-    # forward straddles it rather than pushing it; closing then either stalls on
-    # the cube (grip) or reaches the closed position (empty). Each empty close
-    # buys another centimetre of approach.
-    gripped = False
-    for attempt in range(8):
-        position, stalled = node.close_slowly()
+    # Relative positioning, computed once. The pads must sit FINGER_REACH_M behind
+    # the cube centre along the approach, so the move is the signed difference
+    # between that target and where the pads actually are: clamped and issued once.
+    # The previous version re-measured and re-drove after every failed close, and
+    # whenever the pads had overshot the sign flipped -- which is the shuffling
+    # backwards that showed up in the recordings.
+    pads_target = point[0] - FINGER_REACH_M
+    drive_m = max(-0.08, min(0.08, pads_target - pads[0]))
+    if abs(drive_m) > 0.005:
         node.get_logger().info(
-            'close attempt %d: gripper at %s stalled=%s'
-            % (attempt + 1, 'unknown' if position is None else '%.4f' % position,
-               stalled))
-        if stalled:
-            gripped = True
-            node.get_logger().info('fingers stopped on the cube: gripping')
-            break
-        # Nothing between the jaws: open and creep 5 mm closer, so the search
-        # converges on the cube from behind instead of overshooting into it.
-        node.send_gripper(0.019)
-        time.sleep(0.6)
-        node.get_logger().info('creeping 5 mm closer')
-        node.drive_forward(0.005, speed=0.03)
+            'pads %.3f -> target %.3f: driving %+.3f m (%s)'
+            % (pads[0], pads_target, drive_m,
+               'forward' if drive_m > 0 else 'backing off'))
+        node.drive_forward(drive_m, speed=0.03)
+        time.sleep(0.5)
+    else:
+        node.get_logger().info('pads already at the target (%.3f m)' % pads[0])
 
-    if not gripped:
-        node.get_logger().warn('the jaws never stalled on the cube; '
-                               'lifting anyway to record what happens')
+    # One slow close. If the jaws pass each other the answer is "missed", not
+    # another creep: hunting moves the base without improving the aim.
+    position, stalled = node.close_slowly()
+    node.get_logger().info('close: gripper at %s stalled=%s'
+                           % ('unknown' if position is None else '%.4f' % position,
+                              stalled))
+    if stalled:
+        node.get_logger().info('fingers stopped on the cube: gripping')
+    else:
+        node.get_logger().warn('the jaws passed each other: missed the cube')
     time.sleep(1.0)
 
     lifted = list(joints)
