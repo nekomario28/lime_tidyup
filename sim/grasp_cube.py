@@ -71,10 +71,16 @@ GRIPPER_EFFORT = 6.0
 #: The low aim comes first: measured pads sit 4.4 cm above the cube centre in the
 #: centre-aim pose, so the jaws close over the cube's top instead of around it.
 GRASP_PITCH_ORDER = (150.0, 120.0, 135.0, 105.0)
+#: (pitch degrees, height offset from the measured cube centre).
+#: Measured, not guessed: with the cube at the pre-grasp distance the successful run
+#: closed empty at dz -0.03 and again at -0.04, and only reached the cube at -0.05
+#: (close 3: gripper 0.0155, stalled=True). Pitch 150 is the one that solves there;
+#: 120 and 135 are refused. The rest of the list stays as a fallback for other
+#: distances.
 GRASP_CANDIDATES = (
-    (120.0, -0.03),
-    (135.0, -0.03),
+    (150.0, -0.05),
     (150.0, -0.03),
+    (120.0, -0.03),
     (120.0, 0.0),
 )
 
@@ -273,8 +279,7 @@ class Grasper(Node):
                 if age <= float(maximum_age):
                     best = None
                     for detection in data.get('detections', []):
-                        pose = (detection.get('pose_3d_face')
-                                or detection.get('pose_3d') or {})
+                        pose = detection.get('pose_3d') or {}
                         if len(pose.get('position_m') or []) == 3:
                             if best is None or detection['confidence'] > best[0]:
                                 best = (detection['confidence'], pose)

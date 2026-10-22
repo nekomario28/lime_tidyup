@@ -195,7 +195,9 @@ def main():
         error = math.dist(measured, truth)
         face_pose = None
         for detection in result.get('detections', []):
-            candidate = detection.get('pose_3d_face') or {}
+            candidate = (detection.get('pose_3d_depth')
+                         if pose.get('geometry_id') == 'face-quad-v1'
+                         else detection.get('pose_3d_face')) or {}
             if len(candidate.get('position_m') or []) == 3:
                 face_pose = candidate
                 break
