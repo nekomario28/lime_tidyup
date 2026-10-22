@@ -204,3 +204,25 @@ search room; aim converged 0.044/0/-0.077 -> 0/0/0; grip on touch 1.0 and 0.1.
 
 What is left hand-picked in the grasp path is only the search's own step sizes (5 mm),
 which are bounded by what a close costs rather than by geometry.
+
+### Gripper yaw: tried, measured, and not needed yet (2026-10-22)
+
+The grasp always approaches at yaw 0, which looked like the next real-robot gap: a cube
+turned 45 degrees presents its diagonal (1.41x wider) at the jaws. Two things were
+measured.
+
+**The pose cannot supply the yaw.** The single-view face solve reports which face it is
+looking at; its orientation is quantised to the face grid, so a cube turned 30 degrees
+still reports -90. Using that as the gripper yaw turned the jaws a quarter turn away
+from the cube, and the aiming stopped converging -- one round per grid point, pads off
+by +0.022/-0.022, then IK refusing the corrected aim. This matches the documented
+limitation of the coplanar single-face solve: position is good, yaw is not decided.
+
+**The alignment is not what blocks anything today.** With the cube spawned at 30 degrees
+and the gripper at yaw 0, the run gripped on the first close (`stalled=True` at
+0.0047). So the jaws are wide enough for a turned cube, and a real yaw estimate (two
+visible faces, or a top-face corner detector) is something to add when a cube is turned
+far enough to fail, not before.
+
+`sim/spawn_cube.py` takes a yaw and `bin/cccsim` forwards `CCCSIM_CUBE_YAW`, so that
+case can be provoked deliberately.

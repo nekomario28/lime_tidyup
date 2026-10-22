@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 """Spawn the 57 mm Rubik cube as a dynamic body in front of the robot."""
+import math
 import os
 import sys
 
@@ -33,6 +34,9 @@ def load_cube_generator():
 def main():
     distance = float(sys.argv[1]) if len(sys.argv) > 1 else 0.34
     lateral = float(sys.argv[2]) if len(sys.argv) > 2 else 0.0
+    # Yaw matters for the grasp: the jaws straddle two opposite faces, so a cube turned
+    # 45 degrees presents its diagonal at them. Default 0 keeps the old behaviour.
+    yaw_deg = float(sys.argv[3]) if len(sys.argv) > 3 else 0.0
     xml = load_cube_generator().build_model_sdf(static=False)
     rclpy.init()
     node = Node('spawn_cube')
@@ -47,7 +51,9 @@ def main():
     request.initial_pose.position.x = distance
     request.initial_pose.position.y = lateral
     request.initial_pose.position.z = 0.057 / 2.0 + 0.001
-    request.initial_pose.orientation.w = 1.0
+    half = math.radians(yaw_deg) / 2.0
+    request.initial_pose.orientation.z = math.sin(half)
+    request.initial_pose.orientation.w = math.cos(half)
     request.reference_frame = 'world'
     future = client.call_async(request)
     rclpy.spin_until_future_complete(node, future, timeout_sec=30.0)
@@ -55,7 +61,7 @@ def main():
     if result is None or not result.success:
         status = 'no response' if result is None else result.status_message
         raise SystemExit(f'spawn failed: {status}')
-    print(f'cube spawned at {distance}, {lateral}')
+    print(f'cube spawned at {distance}, {lateral}, yaw {yaw_deg:.0f} deg')
     node.destroy_node()
     rclpy.shutdown()
 

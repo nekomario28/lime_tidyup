@@ -134,7 +134,10 @@ case "${stage}" in
         distance="${1:-1.0}"
         timeout 10 ros2 service call /delete_entity gazebo_msgs/srv/DeleteEntity \
             "{name: rubik_cube}" >/dev/null 2>&1 || true
-        python3 "${repo}/sim/spawn_cube.py" "${distance}" 0.0
+        # CCCSIM_CUBE_YAW turns the cube, which is how the gripper's yaw alignment gets
+        # exercised: a cube on its diagonal is 1.41x wider at the jaws than at yaw 0.
+        python3 "${repo}/sim/spawn_cube.py" "${distance}" 0.0 \
+            "${CCCSIM_CUBE_YAW:-0.0}"
         ;;
     record)
         exec python3 "${repo}/sim/record_frames.py" "${1:?record needs a directory}" 900 10

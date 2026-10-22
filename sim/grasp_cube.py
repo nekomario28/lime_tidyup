@@ -571,6 +571,17 @@ def grasp_pose(point, pitch_deg, dz=0.0):
 
 
 def pitch_quat(pitch_deg):
+    """Gripper orientation: pitch about the arm's y, yaw 0.
+
+    Yaw 0 is deliberate. The cube is gripped by jaws that straddle two opposite faces,
+    so a turned cube is 1.41x wider at 45 degrees, and the obvious fix is to align the
+    jaws with the cube. The pose does not carry that angle: the single-view face solve
+    reports which face it sees, quantised to the face grid, so a cube turned 30 degrees
+    still reports -90 (measured), and using it turned the jaws away from the cube and
+    the aiming stopped converging. What was measured instead: a cube turned 30 degrees
+    grips at yaw 0 on the first close, so the jaws are wide enough that alignment is not
+    what is blocking anything today.
+    """
     half = math.radians(pitch_deg) / 2.0
     return (0.0, math.sin(half), 0.0, math.cos(half))
 
@@ -585,7 +596,12 @@ def main():
     if pose is None:
         raise SystemExit('no cube pose with a 3D position')
     point = node.to_base_link(pose)
-    node.get_logger().info('cube in base_link: %.3f %.3f %.3f' % tuple(point))
+    # No gripper yaw. The single-view face solve reports which face it is looking at --
+    # its orientation is quantised to the face grid, not the cube's own turn -- so using
+    # it turned the jaws by 90 degrees from a cube turned 30 (measured, and the aiming
+    # then could not converge). Aligning the jaws needs a yaw the pose does not carry.
+    node.get_logger().info('cube in base_link: %.3f %.3f %.3f'
+                           % (point[0], point[1], point[2]))
 
     # 1. Range. From where the tree leaves the robot the pads cannot be posed low
     #    enough, and closer they can: with the cube at 0.24 m instead of 0.29 m the

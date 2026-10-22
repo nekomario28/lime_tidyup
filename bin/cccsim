@@ -171,14 +171,16 @@ stage_command() {
 launch_bg() {
     local service="$1" log="$2"
     shift 2
-    run "${compose[@]}" exec -T -d -e DISPLAY="${display}" "${service}" \
+    run "${compose[@]}" exec -T -d -e DISPLAY="${display}" \
+        -e CCCSIM_CUBE_YAW="${CCCSIM_CUBE_YAW:-0.0}" "${service}" \
         bash -lc "exec $(stage_command "$@") >>/root/cccsim_evidence/${log}.log 2>&1"
 }
 
 run_stage() {
     local service="$1"
     shift
-    run "${compose[@]}" exec -T -e DISPLAY="${display}" "${service}" \
+    run "${compose[@]}" exec -T -e DISPLAY="${display}" \
+        -e CCCSIM_CUBE_YAW="${CCCSIM_CUBE_YAW:-0.0}" "${service}" \
         bash -lc "exec $(stage_command "$@")"
 }
 
@@ -354,7 +356,8 @@ if [[ -n "${tree}" ]]; then
     grasp_env=0
     ${grasp} && grasp_env=1
     run "${compose[@]}" exec -T -e DISPLAY="${display}" -e CCCSIM_ATTACH="${attach_env}" \
-        -e CCCSIM_GRASP="${grasp_env}" "${lime_service}" \
+        -e CCCSIM_GRASP="${grasp_env}" \
+        -e CCCSIM_CUBE_YAW="${CCCSIM_CUBE_YAW:-0.0}" "${lime_service}" \
         bash -lc "exec $(stage_command tree "${tree}")"
     echo "[cccsim] done; evidence: ${evidence_dir}"
 else
