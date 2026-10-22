@@ -186,3 +186,21 @@ The adaptive *sweep* was reverted. Doubling the forward step on each empty close
 0.0, 0.0, 0.5 and 1.0 across four. The doubling was not understood well enough to
 keep: it moves 3-7x further per attempt between two close measurements, and the
 close is the only sensor that works there.
+
+### The last height guess was unnecessary (2026-10-22, last)
+
+`GRASP_BELOW_M = 0.045` was the final hand-picked number: "the pads work this far below
+the cube centre", taken from a single measurement. It was used to ask the reach question
+at the right height, and the recent logs show it was also wrong -- the first-round z
+shortfall at the centre aim measured 0.077 m, not 0.045 m.
+
+It is gone rather than corrected. Both sides of the reach comparison can be measured:
+where the pads are now (`fingertip_midpoint`, TF) and how far forward they can be posed
+at that height (IK bisection). room = reach(pads_z) - pads_x. A failed aim is answered
+by driving forward, which is the only direction that brings the cube into the envelope.
+
+Two runs with that in place: pads 0.240 m, reach 0.307 m at that height, 0.067 m of
+search room; aim converged 0.044/0/-0.077 -> 0/0/0; grip on touch 1.0 and 0.1.
+
+What is left hand-picked in the grasp path is only the search's own step sizes (5 mm),
+which are bounded by what a close costs rather than by geometry.

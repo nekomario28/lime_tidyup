@@ -101,12 +101,6 @@ TOUCH_LOWER_STEPS = 4
 #: is that plus one first step -- enough to reach the cube and still be searching
 #: rather than shoved up against the limit.
 REACH_MARGIN_M = 0.035
-#: How far below the cube centre the pads work. The grasp height is always below the
-#: centre (measured pads sit 4.4 cm above the centre when the aim is the centre), and
-#: the arm's forward reach shrinks as it reaches down -- probing at the centre height
-#: reported 0.307 m while the pads at -0.07 m were refused one centimetre further.
-#: So the reach that decides where the base stops is the reach at that height.
-GRASP_BELOW_M = 0.045
 #: Search bounds for the reachable pad range at a given pitch.
 REACH_SEARCH_M = (0.12, 0.42)
 REACH_BISECTIONS = 7
@@ -611,56 +605,44 @@ def main():
     node.send_gripper(0.019)
     time.sleep(1.0)
 
-    # Where the base stops is the decision that makes the sweep possible: leave
-    # REACH_MARGIN_M between the cube and the furthest pose the arm has at this pitch.
+    # Where the base stops is what makes the sweep possible: the pads have to have
+    # somewhere forward to go, or the search dies against the arm's own limit. Both
+    # sides of that comparison are measured -- where the pads are now (TF) and how far
+    # forward they can be posed at that height (IK bisection) -- so no guess about the
+    # grasp height is needed. A failed aim is answered the same way: drive forward,
+    # which is the only direction that brings the cube into the arm's envelope.
+    aim = joints = None
     pitch_deg = PITCH_GRID[0]
-    grasp_height = point[2] - GRASP_BELOW_M
-    reach_x = reachable_pad_x(node, pitch_deg, grasp_height)
-    wanted = reach_x - REACH_MARGIN_M
-    if point[0] > wanted:
-        retreat = point[0] - wanted
-        node.get_logger().info(
-            'arm reaches %.3f m at %.3f m height (pitch %.0f); bringing the cube to '
-            '%.3f m (back %.3f m)'
-            % (reach_x, grasp_height, pitch_deg, wanted, retreat))
-        node.drive_forward(-retreat, speed=0.03)
-        point[0] -= retreat
-        time.sleep(0.5)
-    else:
-        node.get_logger().info(
-            'arm reaches %.3f m at %.3f m height (pitch %.0f); the cube at %.3f m '
-            'leaves %.3f m of search room'
-            % (reach_x, grasp_height, pitch_deg, point[0], wanted - point[0]))
-
-    aim, joints, pitch_deg = aim_at_pads(node, point)
-    # Room is checked against the aim's own height, because that is where the pads
-    # have to travel: the reach measured at the cube's centre height (0.307 m) was
-    # 4 mm wider than the reach 8 cm lower, and the sweep died on that difference.
-    # Driving forward is what buys room -- the pads are on the robot, so only the cube
-    # gets closer.
-    for _ in range(2):
+    for attempt in range(3):
+        aim, joints, pitch_deg = aim_at_pads(node, point)
         if joints is None:
+            creep = 0.02
+            node.get_logger().info('nothing reachable for the cube at %.3f m; driving '
+                                   'forward %.3f m' % (point[0], creep))
+            node.drive_forward(creep, speed=0.03)
+            point[0] -= creep
+            time.sleep(0.5)
+            continue
+        pads = node.fingertip_midpoint()
+        if pads is None:
             break
-        room = reachable_pad_x(node, pitch_deg, aim[2]) - aim[0]
+        reach_x = reachable_pad_x(node, pitch_deg, pads[2])
+        room = reach_x - pads[0]
         if room >= REACH_MARGIN_M:
-            node.get_logger().info('search room ahead: %.3f m at %.3f m height'
-                                   % (room, aim[2]))
+            node.get_logger().info(
+                'pads at %.3f m, reach %.3f m at that height: %.3f m of search room'
+                % (pads[0], reach_x, room))
             break
         creep = REACH_MARGIN_M - room
-        if creep <= 0.002:
-            break
-        node.get_logger().info('only %.3f m of room at %.3f m height; driving '
-                               'forward %.3f m' % (room, aim[2], creep))
+        node.get_logger().info(
+            'pads at %.3f m, reach %.3f m: only %.3f m of room, driving forward %.3f m'
+            % (pads[0], reach_x, room, creep))
         node.drive_forward(creep, speed=0.03)
         point[0] -= creep
         time.sleep(0.5)
-        aim, joints, pitch_deg = aim_at_pads(node, point)
     if joints is None:
         raise SystemExit('ik found no solution within reach (cube at %s)'
                          % [round(v, 3) for v in point])
-    target = grasp_pose(aim, pitch_deg, 0.0)
-    node.draw_overlay('aim: pitch %.0f target %.3f,%.3f,%.3f'
-                      % (pitch_deg, *target), target=target)
 
     # 3. Hand over to touch. The camera is no longer a reference here: the arm sits
     #    between it and the cube, and re-measuring made the cube walk forward about
