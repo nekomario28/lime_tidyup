@@ -78,6 +78,11 @@ class YoloPoseNode(Node):
         self.declare_parameter('depth_pose_bias_m', '0,0,0')
         #: Off for the calibration sweep, so the raw bias is measurable.
         self.declare_parameter('depth_pose_half_side', True)
+        #: How long a pose stays usable when the current frame produces none. A
+        #: cube at 1 m is seen a few times a second and the arm does not move that
+        #: fast, so a short memory beats publishing nothing (measured: the frame
+        #: after a base move often has no solve at all).
+        self.declare_parameter('pose_memory_max_age_s', 1.5)
         # Normalised perception ROI for the depth blob ("x0,y0,x1,y1" in 0..1).
         # The arm is inside the same working-distance band as the cube, so the
         # two merge into one blob unless the search is bounded; a real
@@ -122,6 +127,7 @@ class YoloPoseNode(Node):
         self.latest_image_width = 0
         self.latest_image_height = 0
         self.latest_image = None
+        self.pose_memory = None
         self.depth_pose_enabled = bool(
             self.get_parameter('depth_pose_enabled').value
         )
@@ -272,6 +278,20 @@ class YoloPoseNode(Node):
     def depth_info_callback(self, msg):
         """Keep the depth intrinsics (the colour ones may be a different camera)."""
         self.depth_camera_info = msg
+
+    def _pose_from_memory(self, timestamp):
+        """The last accepted pose, if it is fresh enough to stand in."""
+        if self.pose_memory is None:
+            return None
+        pose, stamp = self.pose_memory
+        age = abs(float(timestamp) - float(stamp))
+        if age > float(self.get_parameter('pose_memory_max_age_s').value):
+            return None
+        remembered = dict(pose)
+        remembered['geometry_id'] = '%s-memory' % pose.get('geometry_id', 'pose')
+        remembered['from_memory'] = True
+        remembered['memory_age_s'] = round(age, 3)
+        return remembered
 
     def depth_age_seconds(self, timestamp):
         """How old the depth frame is compared with the colour frame."""

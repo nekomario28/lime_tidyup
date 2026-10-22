@@ -534,6 +534,11 @@ def main():
     #    d brings the cube d closer in base_link, so when the publisher is silent
     #    (it stops while the base moves -- measured a 73 s gap) the same arithmetic
     #    advances the target instead of stalling the loop.
+    # Tolerance follows the pose source: a face solve was measured at about a
+    # centimetre, the depth centre at about the same in range but with a bias that
+    # shows up as a ~2.5 cm difference between the two at grasp range. Holding the
+    # depth pose to a face-level tolerance made the loop chase that difference and
+    # never converge (measured: dx pinned at 0.023 for four checks).
     tolerance_m = 0.012
     verified = False
     last_drive = 0.0
@@ -553,12 +558,18 @@ def main():
                 're-measured cube at %.3f %.3f %.3f (%s)'
                 % (point[0], point[1], point[2],
                    fresh.get('geometry_id', '?')))
+        source = (fresh or {}).get('geometry_id', '') if fresh else ''
+        if 'depth' in source or 'memory' in source:
+            tolerance_m = 0.030
+        else:
+            tolerance_m = 0.012
         pads_target = point[0] - FINGER_REACH_M
         residual_x = pads_target - pads[0]
         residual_y = point[1] - pads[1]
         node.get_logger().info(
-            'check %d: pads %.3f target %.3f -> dx %.3f, dy %.3f'
-            % (attempt + 1, pads[0], pads_target, residual_x, residual_y))
+            'check %d: pads %.3f target %.3f -> dx %.3f, dy %.3f (tol %.0f mm, '
+            'pose %s)' % (attempt + 1, pads[0], pads_target, residual_x,
+                          residual_y, tolerance_m * 1000, source or 'initial'))
         if abs(residual_x) <= tolerance_m and abs(residual_y) <= 0.015:
             verified = True
             node.get_logger().info('verified: pads within %.0f mm of the cube'
