@@ -137,3 +137,27 @@ So the sweep is not decoration: one run in three needed 25 mm of forward search,
 none needed a height step. The 5 mm creep resolved it without overshooting into the
 cube, and the 5 mm height step has not yet been exercised -- it exists for the
 centimetre of run-to-run height spread that earlier runs did show (-0.05 vs -0.06).
+
+## Replacing the tuning with measurement (2026-10-22, later)
+
+Every constant that had been tuned by re-running the grasp is now measured at run
+time. Four quantities, four measurements:
+
+| was | is |
+|---|---|
+| `GRASP_CANDIDATES` (pitch, dz) pairs, tuned over six runs | **where the pads actually go**: each round moves the command by the measured shortfall (round 1: +0.044/0/-0.077, round 2: 0/0/0) |
+| `GRASP_PITCH_ORDER` (150, 120, 135, 105) by hand | the pitch that converges is the one used; the grid is walked until a pose is accepted |
+| base distance 0.24 m fixed | **the arm's own reach**, bisected through IK (measured 0.307 m at pitch 150), minus a 3 cm margin for the sweep |
+| creep 5 mm, lowering 5 mm to 10 mm fixed | the sweep doubles its step on an empty close (an empty close proves the cube is beyond the pads) and lowers by what was already tried |
+
+Result of the first run with all four in place: reach 0.307 m measured, aim converged
+to 0.000 m in two rounds, one empty close, one 5 mm lowering, then `stalled=True`.
+
+Two mistakes made on the way are worth keeping, because both look like progress:
+
+- Sizing the sweep step and the lowering from `target - aim` used the *wrist-to-pads*
+  offset (0.022 m), not a measured error. It produced a 2.2 cm first step and a 4.7 cm
+  drop, and the arm ran out of reach.
+- Correcting the aim from one fixed first guess hangs when that guess is unreachable:
+  at the pre-grasp distance the centre aim is refused at every pitch while 3 cm lower
+  solves at 150. The grid of first guesses exists only to find one accepted pose.
