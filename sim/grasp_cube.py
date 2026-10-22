@@ -71,6 +71,19 @@ GRIPPER_EFFORT = 6.0
 #: The low aim comes first: measured pads sit 4.4 cm above the cube centre in the
 #: centre-aim pose, so the jaws close over the cube's top instead of around it.
 GRASP_PITCH_ORDER = (150.0, 120.0, 135.0, 105.0)
+#: Touch sweep: how far the aim walks forward per attempt, and how far down it steps
+#: when a whole forward sweep at one height finds nothing.
+#:
+#: The height step is 5 mm, not 10 mm, because the height at which the jaws reach the
+#: cube differed by a centimetre between two runs (-0.05 and -0.06), so a 10 mm step
+#: can straddle the cube entirely. Forward is bounded by the arm: the sweep exists for
+#: the case where the aim lands short, which has not happened yet in a run that
+#: gripped -- it is insurance, and it costs one close attempt per 5 mm.
+TOUCH_CREEP_M = 0.005
+TOUCH_CREEP_STEPS = 8
+TOUCH_LOWER_M = 0.005
+TOUCH_LOWER_STEPS = 5
+
 #: (pitch degrees, height offset from the measured cube centre).
 #: Measured, not guessed: with the cube at the pre-grasp distance the successful run
 #: closed empty at dz -0.03 and again at -0.04, and only reached the cube at -0.05
@@ -607,13 +620,10 @@ def main():
     #    together, so `pads - cube` cannot be changed by driving. When forward stops
     #    paying (IK refusing, or the ladder exhausted at that height), lower the aim
     #    a centimetre and sweep forward again.
-    CREEP_M = 0.005
-    CREEP_STEPS = 8
-    LOWER_STEPS = 3
     gripped = False
     dz_now = dz
-    for level in range(LOWER_STEPS + 1):
-        for creep in range(CREEP_STEPS + 1):
+    for level in range(TOUCH_LOWER_STEPS + 1):
+        for creep in range(TOUCH_CREEP_STEPS + 1):
             position, stalled = node.close_slowly()
             node.get_logger().info(
                 'touch %d.%d: gripper at %s stalled=%s'
@@ -625,9 +635,9 @@ def main():
                 break
             node.send_gripper(0.019)
             time.sleep(0.5)
-            if creep == CREEP_STEPS:
+            if creep == TOUCH_CREEP_STEPS:
                 break
-            aim[0] += CREEP_M
+            aim[0] += TOUCH_CREEP_M
             solved = None
             for pitch_try in GRASP_PITCH_ORDER:
                 candidate = grasp_pose(aim, pitch_try, dz_now)
@@ -638,16 +648,17 @@ def main():
             if solved is None:
                 node.get_logger().info('arm will not reach %.3f; stopping the '
                                        'forward sweep' % aim[0])
-                aim[0] -= CREEP_M
+                aim[0] -= TOUCH_CREEP_M
                 break
             node.send_arm(joints, seconds=2.5)
             time.sleep(0.4)
         if gripped:
             break
-        if level == LOWER_STEPS:
+        if level == TOUCH_LOWER_STEPS:
             break
-        node.get_logger().info('nothing at this height; lowering the aim by 1 cm')
-        dz_now -= 0.01
+        node.get_logger().info('nothing at this height; lowering the aim by %.0f mm'
+                               % (TOUCH_LOWER_M * 1000))
+        dz_now -= TOUCH_LOWER_M
         solved = None
         for pitch_try in GRASP_PITCH_ORDER:
             candidate = grasp_pose(aim, pitch_try, dz_now)
@@ -667,7 +678,7 @@ def main():
     if not gripped:
         node.get_logger().warn('no contact after %d sweeps; the cube was not '
                                'between the jaws'
-                               % (LOWER_STEPS + 1))
+                               % (TOUCH_LOWER_STEPS + 1))
         return
 
     # 5. Lift.

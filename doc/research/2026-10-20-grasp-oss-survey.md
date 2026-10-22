@@ -124,3 +124,16 @@ when the close stalled -- the occlusion error in the other direction, and proof 
 the visual residual should not be an acceptance test at this range. The sweep costs
 nothing when it works first time, and it is the only thing that worked when it did
 not.
+
+### Sweep envelope, measured 2026-10-22 (three runs with the sweep in place)
+
+| run | where the grip happened | forward searched | height steps used |
+|---|---|---|---|
+| 1 | touch 0.0 | 0 mm | 0 |
+| 2 | touch 0.0 | 0 mm | 0 |
+| 3 | touch 0.5 | 25 mm (5 x 5 mm) | 0 |
+
+So the sweep is not decoration: one run in three needed 25 mm of forward search, and
+none needed a height step. The 5 mm creep resolved it without overshooting into the
+cube, and the 5 mm height step has not yet been exercised -- it exists for the
+centimetre of run-to-run height spread that earlier runs did show (-0.05 vs -0.06).
