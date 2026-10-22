@@ -161,3 +161,28 @@ Two mistakes made on the way are worth keeping, because both look like progress:
 - Correcting the aim from one fixed first guess hangs when that guess is unreachable:
   at the pre-grasp distance the centre aim is refused at every pitch while 3 cm lower
   solves at 150. The grid of first guesses exists only to find one accepted pose.
+
+### Tuning the last two numbers from their measured distributions, and one revert
+
+`PAD_TOLERANCE_M` and `REACH_MARGIN_M` were the last hand-picked values. Both now come
+from what the runs did:
+
+| number | data | value |
+|---|---|---|
+| pad tolerance | one correction takes the error from up to 77 mm to under 0.5 mm, so the gate only absorbs TF rounding | 12 mm -> **3 mm** |
+| reach reserve | the largest forward shortfall a sweep has needed is 25 mm | 30 mm -> **35 mm** (25 mm + one 8 mm step) |
+
+Two mistakes found while measuring them, both worth keeping:
+
+- The reach probe used the cube's centre height (0.307 m at pitch 150). The pads work
+  4-8 cm lower, where the reach is shorter, so "there is room" was measured where the
+  arm never goes. The probe now runs at the grasp height, and the reserve is checked
+  against the corrected aim's own height.
+- The reserve has to be bought with a **forward** drive: the pads sit on the base, so
+  only the cube comes closer. Retreating buys nothing.
+
+The adaptive *sweep* was reverted. Doubling the forward step on each empty close
+(8/16/32 mm) gripped in none of three runs, while the fixed 5 mm sweep has gripped at
+0.0, 0.0, 0.5 and 1.0 across four. The doubling was not understood well enough to
+keep: it moves 3-7x further per attempt between two close measurements, and the
+close is the only sensor that works there.

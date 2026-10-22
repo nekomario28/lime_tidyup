@@ -81,24 +81,35 @@ REACH_MARGIN_M = 0.01
 
 #: The pads' shortfall from the aim is measured, not tuned: every round moves the
 #: command by whatever the pads did not do, which converges because the arm is close
-#: to linear over a centimetre. PAD_TOLERANCE_M is how close counts as on the cube.
-PAD_TOLERANCE_M = 0.012
-#: Touch search bounds. The first forward step is the measured shortfall (or this
-#: floor), and each empty close doubles it: an empty close proves the cube is beyond
-#: the pads, so there is no reason to crawl. Both are bounds on a search, not calibrations.
-TOUCH_FIRST_STEP_M = 0.008
-TOUCH_FORWARD_LIMIT_M = 0.06
+#: to linear over a centimetre. Measured over the runs, one correction takes the error
+#: from up to 77 mm to under 0.5 mm, so this gate only has to absorb TF rounding --
+#: a 12 mm gate was discarding accuracy the arm had already delivered and handing the
+#: sweep a centimetre of it.
+PAD_TOLERANCE_M = 0.003
+#: Touch sweep, verified over four runs (grips at 0.0, 0.0, 0.5 and 1.0). The steps are
+#: deliberately fixed: an adaptive doubling step was tried and gripped in none of three
+#: runs, and the failure was not understood well enough to keep it.
+TOUCH_CREEP_M = 0.005
+TOUCH_CREEP_STEPS = 8
+TOUCH_LOWER_M = 0.005
+TOUCH_LOWER_STEPS = 4
 #: How much forward room to leave between the cube and the arm's reachable limit. The
 #: base distance is chosen from that, not from a constant: the sweep can only search
 #: into the cube if the arm has somewhere to go, and how much room there is depends on
 #: the pitch, which is chosen at runtime.
-REACH_MARGIN_M = 0.03
+#: The largest forward shortfall a sweep has actually needed is 25 mm, so the reserve
+#: is that plus one first step -- enough to reach the cube and still be searching
+#: rather than shoved up against the limit.
+REACH_MARGIN_M = 0.035
+#: How far below the cube centre the pads work. The grasp height is always below the
+#: centre (measured pads sit 4.4 cm above the centre when the aim is the centre), and
+#: the arm's forward reach shrinks as it reaches down -- probing at the centre height
+#: reported 0.307 m while the pads at -0.07 m were refused one centimetre further.
+#: So the reach that decides where the base stops is the reach at that height.
+GRASP_BELOW_M = 0.045
 #: Search bounds for the reachable pad range at a given pitch.
 REACH_SEARCH_M = (0.12, 0.42)
 REACH_BISECTIONS = 7
-TOUCH_MAX_TRIES = 10
-TOUCH_MAX_LEVELS = 4
-TOUCH_MIN_LOWER_M = 0.005
 
 
 class Grasper(Node):
@@ -603,22 +614,47 @@ def main():
     # Where the base stops is the decision that makes the sweep possible: leave
     # REACH_MARGIN_M between the cube and the furthest pose the arm has at this pitch.
     pitch_deg = PITCH_GRID[0]
-    reach_x = reachable_pad_x(node, pitch_deg, point[2])
+    grasp_height = point[2] - GRASP_BELOW_M
+    reach_x = reachable_pad_x(node, pitch_deg, grasp_height)
     wanted = reach_x - REACH_MARGIN_M
     if point[0] > wanted:
         retreat = point[0] - wanted
-        node.get_logger().info('arm reaches %.3f m at pitch %.0f; bringing the cube '
-                               'to %.3f m (back %.3f m)'
-                               % (reach_x, pitch_deg, wanted, retreat))
+        node.get_logger().info(
+            'arm reaches %.3f m at %.3f m height (pitch %.0f); bringing the cube to '
+            '%.3f m (back %.3f m)'
+            % (reach_x, grasp_height, pitch_deg, wanted, retreat))
         node.drive_forward(-retreat, speed=0.03)
         point[0] -= retreat
         time.sleep(0.5)
     else:
-        node.get_logger().info('arm reaches %.3f m at pitch %.0f; the cube at %.3f m '
-                               'is already inside that'
-                               % (reach_x, pitch_deg, point[0]))
+        node.get_logger().info(
+            'arm reaches %.3f m at %.3f m height (pitch %.0f); the cube at %.3f m '
+            'leaves %.3f m of search room'
+            % (reach_x, grasp_height, pitch_deg, point[0], wanted - point[0]))
 
     aim, joints, pitch_deg = aim_at_pads(node, point)
+    # Room is checked against the aim's own height, because that is where the pads
+    # have to travel: the reach measured at the cube's centre height (0.307 m) was
+    # 4 mm wider than the reach 8 cm lower, and the sweep died on that difference.
+    # Driving forward is what buys room -- the pads are on the robot, so only the cube
+    # gets closer.
+    for _ in range(2):
+        if joints is None:
+            break
+        room = reachable_pad_x(node, pitch_deg, aim[2]) - aim[0]
+        if room >= REACH_MARGIN_M:
+            node.get_logger().info('search room ahead: %.3f m at %.3f m height'
+                                   % (room, aim[2]))
+            break
+        creep = REACH_MARGIN_M - room
+        if creep <= 0.002:
+            break
+        node.get_logger().info('only %.3f m of room at %.3f m height; driving '
+                               'forward %.3f m' % (room, aim[2], creep))
+        node.drive_forward(creep, speed=0.03)
+        point[0] -= creep
+        time.sleep(0.5)
+        aim, joints, pitch_deg = aim_at_pads(node, point)
     if joints is None:
         raise SystemExit('ik found no solution within reach (cube at %s)'
                          % [round(v, 3) for v in point])
@@ -629,57 +665,47 @@ def main():
     # 3. Hand over to touch. The camera is no longer a reference here: the arm sits
     #    between it and the cube, and re-measuring made the cube walk forward about
     #    2 cm per step (0.240 -> 0.261 -> 0.277). What is trustworthy is the jaws
-    #    stalling. Steps are adaptive: an empty close proves the cube is beyond the
-    #    pads, so the next step doubles the first one, bounded by the arm's reach.
-    step = TOUCH_FIRST_STEP_M
-    forward_used = 0.0
-    lowered_by = 0.0
+    #    stalling, so close, and on an empty close open, push the aim forward 5 mm and
+    #    close again; when a whole forward sweep at one height finds nothing, lower a
+    #    centimetre and sweep again. An adaptive doubling step was tried and gripped in
+    #    none of three runs, so the fixed step is what ships until the failure is
+    #    understood.
     gripped = False
-    for level in range(TOUCH_MAX_LEVELS + 1):
-        for attempt in range(TOUCH_MAX_TRIES):
+    for level in range(TOUCH_LOWER_STEPS + 1):
+        for creep in range(TOUCH_CREEP_STEPS + 1):
             position, stalled = node.close_slowly()
             node.get_logger().info(
-                'touch %d.%d: gripper at %s stalled=%s (aim %.3f, step %.3f)'
-                % (level, attempt, 'unknown' if position is None
-                   else '%.4f' % position, stalled, aim[0], step))
+                'touch %d.%d: gripper at %s stalled=%s'
+                % (level, creep, 'unknown' if position is None
+                   else '%.4f' % position, stalled))
             if stalled:
                 node.get_logger().info('fingers stopped on the cube: gripping')
                 gripped = True
                 break
             node.send_gripper(0.019)
-            time.sleep(0.4)
-            remaining = TOUCH_FORWARD_LIMIT_M - forward_used
-            if remaining <= 0.0:
+            time.sleep(0.5)
+            if creep == TOUCH_CREEP_STEPS:
                 break
-            creep = min(step, remaining)
-            aim[0] += creep
+            if level == 0 and creep == 0:
+                # the aim already sits where the pads landed, which is the best
+                # estimate there is; the sweep moves out from there
+                pass
+            aim[0] += TOUCH_CREEP_M
             if hold_aim(node, aim, pitch_deg) is None:
                 node.get_logger().info('arm cannot reach %.3f m; ending this sweep'
                                        % aim[0])
-                aim[0] -= creep
+                aim[0] -= TOUCH_CREEP_M
                 break
-            forward_used += creep
-            step = min(2.0 * step, max(remaining - creep, TOUCH_FIRST_STEP_M))
-        if gripped or level == TOUCH_MAX_LEVELS:
+        if gripped or level == TOUCH_LOWER_STEPS:
             break
-        # nothing at this height: descend by the measured height error, at least the
-        # floor, then sweep forward again from where the height change left the pads
-        lower = max(TOUCH_MIN_LOWER_M, lowered_by)
-        node.get_logger().info('nothing at this height; lowering %.0f mm'
-                               % (lower * 1000))
-        aim[0] -= forward_used
-        forward_used = 0.0
-        step = TOUCH_FIRST_STEP_M
-        aim[2] -= lower
-        lowered_by = lower
+        node.get_logger().info('nothing at this height; lowering the aim by %.0f mm'
+                               % (TOUCH_LOWER_M * 1000))
+        aim[0] -= TOUCH_CREEP_M * TOUCH_CREEP_STEPS
+        aim[2] -= TOUCH_LOWER_M
         if hold_aim(node, aim, pitch_deg) is None:
-            node.get_logger().warn('ik will not go lower; this arm cannot reach '
-                                   'the cube from here')
+            node.get_logger().warn('ik will not go lower; this arm cannot reach the '
+                                   'cube from here')
             break
-    if not gripped:
-        node.get_logger().warn('no contact after %d levels; the cube was not '
-                               'between the jaws' % (TOUCH_MAX_LEVELS + 1))
-        return
 
     # 5. Lift.
     lifted = list(joints)
