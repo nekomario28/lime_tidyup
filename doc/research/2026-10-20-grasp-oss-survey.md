@@ -113,7 +113,14 @@ Measured while trying to make contact repeatable.
   0.0155 and 0.0151) and missed in four. The misses share one shape: the visual
   residual was not credible by the time the jaws closed.
 
-Next thing to try is not another correction: at close range the **stall is the only
-ground truth**, so the loop should stop trusting the visual re-check once the arm is
-in the way and creep forward in ~5 mm steps, closing at each one until the jaws
-stall.
+That was tried, and it is the answer. The loop now takes at most two visual checks,
+corrects the aim on the arm, and then hands over to a touch sweep: close, and if the
+jaws pass each other, open, push the aim 5 mm forward and close again, lowering the
+aim a centimetre when a whole sweep finds nothing at that height.
+
+Two runs in a row gripped on the very first close of the sweep (`stalled=True` at
+0.0147 and -0.0074). In the second, the camera still reported the pads 0.021 m short
+when the close stalled -- the occlusion error in the other direction, and proof that
+the visual residual should not be an acceptance test at this range. The sweep costs
+nothing when it works first time, and it is the only thing that worked when it did
+not.

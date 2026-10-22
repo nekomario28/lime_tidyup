@@ -541,7 +541,9 @@ def main():
     tolerance_m = 0.012
     aim = list(point)
     verified = False
-    for attempt in range(4):
+    # Two attempts, not four: the arm is already in front of the camera, so a
+    # longer visual loop chases a measurement that is drifting (see step 4).
+    for attempt in range(2):
         pads = node.fingertip_midpoint()
         if pads is None:
             raise SystemExit('no fingertip transform')
@@ -592,60 +594,81 @@ def main():
         node.send_arm(joints, seconds=3.0)
         time.sleep(0.8)
     if not verified:
-        node.get_logger().warn('could not verify the pads around the cube; '
-                               'closing anyway and recording what happens')
+        node.get_logger().warn('the pads are not verified around the cube from '
+                               'the camera; letting the touch sweep decide')
 
-    # 4. Close, lowering the aim a centimetre at a time when the jaws pass each
-    #    other. IK refusing is the answer to how far this arm can reach down.
-    #    Lowering moves the pads in x as well as z, so every step re-aims from the
-    #    measured point and re-closes the range afterwards: the run that descended
-    #    4 cm without re-checking closed empty four times, with nothing re-verified
-    #    after the first lowering.
+    # 4. Search by touch. From here the camera is not a reference any more: the arm
+    #    sits between it and the cube, and re-measuring made the cube appear to walk
+    #    forward about 2 cm per step (0.240 -> 0.261 -> 0.277). What is trustworthy
+    #    at this range is the jaws stalling on something.
+    #
+    #    So: close. If the jaws pass each other, open, push the aim forward 5 mm, and
+    #    close again. Forward, not the base -- the pads and the cube ride on the base
+    #    together, so `pads - cube` cannot be changed by driving. When forward stops
+    #    paying (IK refusing, or the ladder exhausted at that height), lower the aim
+    #    a centimetre and sweep forward again.
+    CREEP_M = 0.005
+    CREEP_STEPS = 8
+    LOWER_STEPS = 3
+    gripped = False
     dz_now = dz
-    pitch_now = pitch_deg
-    for lower in range(4):
-        position, stalled = node.close_slowly()
-        node.get_logger().info('close: gripper at %s stalled=%s'
-                               % ('unknown' if position is None
-                                  else '%.4f' % position, stalled))
-        if stalled:
-            node.get_logger().info('fingers stopped on the cube: gripping')
+    for level in range(LOWER_STEPS + 1):
+        for creep in range(CREEP_STEPS + 1):
+            position, stalled = node.close_slowly()
+            node.get_logger().info(
+                'touch %d.%d: gripper at %s stalled=%s'
+                % (level, creep, 'unknown' if position is None
+                   else '%.4f' % position, stalled))
+            if stalled:
+                node.get_logger().info('fingers stopped on the cube: gripping')
+                gripped = True
+                break
+            node.send_gripper(0.019)
+            time.sleep(0.5)
+            if creep == CREEP_STEPS:
+                break
+            aim[0] += CREEP_M
+            solved = None
+            for pitch_try in GRASP_PITCH_ORDER:
+                candidate = grasp_pose(aim, pitch_try, dz_now)
+                solved = node.solve_ik(candidate, pitch_quat(pitch_try))
+                if solved is not None:
+                    target, pitch_deg, joints = candidate, pitch_try, solved
+                    break
+            if solved is None:
+                node.get_logger().info('arm will not reach %.3f; stopping the '
+                                       'forward sweep' % aim[0])
+                aim[0] -= CREEP_M
+                break
+            node.send_arm(joints, seconds=2.5)
+            time.sleep(0.4)
+        if gripped:
             break
-        node.get_logger().info('jaws closed empty; lowering the aim by 1 cm')
-        node.send_gripper(0.019)
-        time.sleep(0.6)
+        if level == LOWER_STEPS:
+            break
+        node.get_logger().info('nothing at this height; lowering the aim by 1 cm')
         dz_now -= 0.01
         solved = None
-        for pitch_now in GRASP_PITCH_ORDER:
-            target = grasp_pose(point, pitch_now, dz_now)
-            solved = node.solve_ik(target, pitch_quat(pitch_now))
+        for pitch_try in GRASP_PITCH_ORDER:
+            candidate = grasp_pose(aim, pitch_try, dz_now)
+            solved = node.solve_ik(candidate, pitch_quat(pitch_try))
             if solved is not None:
+                target, pitch_deg, joints = candidate, pitch_try, solved
                 node.get_logger().info('lowered: pitch %.0f at %s'
-                                       % (pitch_now,
-                                          [round(v, 3) for v in target]))
+                                       % (pitch_try,
+                                          [round(v, 3) for v in candidate]))
                 break
         if solved is None:
-            node.get_logger().warn('ik will not go %.2f m lower; this arm cannot '
-                                   'reach the cube from here'
-                                   % (0.01 * (lower + 1)))
+            node.get_logger().warn('ik will not go lower from here; this arm '
+                                   'cannot reach the cube')
             break
-        joints = solved
-        node.send_arm(joints, seconds=4.0)
-        time.sleep(0.8)
-
-        pads = node.fingertip_midpoint()
-        if pads is None:
-            continue
-        drift_x = (point[0] - FINGER_REACH_M) - pads[0]
-        drift_y = point[1] - pads[1]
-        node.get_logger().info('after lowering: pads dx %+.3f dy %+.3f'
-                               % (drift_x, drift_y))
-        if abs(drift_x) > tolerance_m:
-            node.get_logger().info('re-closing range by %+.3f m' % drift_x)
-            node.drive_forward(drift_x, speed=0.02)
-            point[0] -= drift_x
-            time.sleep(0.6)
-    time.sleep(1.0)
+        node.send_arm(joints, seconds=3.0)
+        time.sleep(0.6)
+    if not gripped:
+        node.get_logger().warn('no contact after %d sweeps; the cube was not '
+                               'between the jaws'
+                               % (LOWER_STEPS + 1))
+        return
 
     # 5. Lift.
     lifted = list(joints)
