@@ -88,3 +88,32 @@ MoveIt の計画予算、actor スレッド内 IK）のあとに残った問題�
 2. **台を置く**: 立方体を数 cm 高い台に載せ、掌下向きの把持を可能にする（シナリオ変更）。
 3. **接触アシスト前提で接近だけ最適化**: 指先が立方体に触れる位置まで近づけ、
    保持はプラグインに任せる。
+
+
+## Addendum 2026-10-22: what the close-range correction can and cannot do
+
+Measured while trying to make contact repeatable.
+
+- **Driving the base cannot close a pads-vs-cube residual.** Both the pads and the
+  cube ride on the base, so `pads - cube` is invariant under a base move. An earlier
+  verify loop drove the base by the residual and watched the same 0.023 m for four
+  checks; it was correcting the one thing that could not change.
+- **The correction has to be an arm re-aim.** IK leaves the pads consistently short
+  of the aim (0.022 m at every height tried), and re-solving at `aim + residual`
+  moves them by exactly that amount (measured: pads 0.217 -> 0.240 for a 0.023 m
+  correction).
+- **Once the arm is in front of the camera, the cube measurement stops being a
+  fixed reference.** With the arm extended toward the cube the re-measured centre
+  walked forward about 2 cm per step (0.240 -> 0.261 -> 0.277) and the close-range
+  aims then drifted backwards as each solve used the drifted point. The arm
+  occludes the very face the pose comes from.
+- **Distinguishing sign convention worth keeping:** `residual > 0` means the pads
+  are *short* of the cube, because `pads_target = cube_x - FINGER_REACH_M`.
+- Contact has been reached in two runs (dz -0.05 and -0.06, `stalled=True` at
+  0.0155 and 0.0151) and missed in four. The misses share one shape: the visual
+  residual was not credible by the time the jaws closed.
+
+Next thing to try is not another correction: at close range the **stall is the only
+ground truth**, so the loop should stop trusting the visual re-check once the arm is
+in the way and creep forward in ~5 mm steps, closing at each one until the jaws
+stall.

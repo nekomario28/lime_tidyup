@@ -529,19 +529,18 @@ def main():
     node.send_arm(joints, seconds=5.0)
     time.sleep(1.0)
 
-    # 3. Verify. Re-read the cube pose and measure the pads, then drive the
-    #    residual in; close only once they are within tolerance. Driving forward by
-    #    d brings the cube d closer in base_link, so when the publisher is silent
-    #    (it stops while the base moves -- measured a 73 s gap) the same arithmetic
-    #    advances the target instead of stalling the loop.
-    # Tolerance follows the pose source: a face solve was measured at about a
-    # centimetre, the depth centre at about the same in range but with a bias that
-    # shows up as a ~2.5 cm difference between the two at grasp range. Holding the
-    # depth pose to a face-level tolerance made the loop chase that difference and
-    # never converge (measured: dx pinned at 0.023 for four checks).
+    # 3. Verify, and correct on the arm. Re-read the cube pose and measure the
+    #    pads; close only once they sit within tolerance of it.
+    #
+    #    The correction has to be an arm correction. Driving the base forward moves
+    #    the pads and the cube together, so `pads - cube` is invariant under it:
+    #    that is why an earlier version drove the base and watched the same 0.023 m
+    #    residual for four checks. IK leaves the pads a little short of the aim
+    #    (measured: a constant 0.022 m at every height), so the aim is moved forward
+    #    by exactly that shortfall and re-solved.
     tolerance_m = 0.012
+    aim = list(point)
     verified = False
-    last_drive = 0.0
     for attempt in range(4):
         pads = node.fingertip_midpoint()
         if pads is None:
@@ -549,45 +548,61 @@ def main():
         fresh = node.wait_for_pose()
         if fresh is None:
             node.get_logger().info(
-                'no fresh pose; applying the commanded %.3f m to the target'
-                % last_drive)
+                'no fresh pose; keeping the last measured cube position')
         else:
             point = node.to_base_link(fresh)
-            last_drive = 0.0
             node.get_logger().info(
                 're-measured cube at %.3f %.3f %.3f (%s)'
                 % (point[0], point[1], point[2],
                    fresh.get('geometry_id', '?')))
-        source = (fresh or {}).get('geometry_id', '') if fresh else ''
-        if 'depth' in source or 'memory' in source:
-            tolerance_m = 0.030
-        else:
-            tolerance_m = 0.012
-        pads_target = point[0] - FINGER_REACH_M
-        residual_x = pads_target - pads[0]
+        residual_x = (point[0] - FINGER_REACH_M) - pads[0]
         residual_y = point[1] - pads[1]
         node.get_logger().info(
-            'check %d: pads %.3f target %.3f -> dx %.3f, dy %.3f (tol %.0f mm, '
-            'pose %s)' % (attempt + 1, pads[0], pads_target, residual_x,
-                          residual_y, tolerance_m * 1000, source or 'initial'))
-        if abs(residual_x) <= tolerance_m and abs(residual_y) <= 0.015:
+            'check %d: pads %.3f target %.3f -> dx %+.3f dy %+.3f'
+            % (attempt + 1, pads[0], point[0] - FINGER_REACH_M,
+               residual_x, residual_y))
+        if abs(residual_x) <= tolerance_m and abs(residual_y) <= tolerance_m:
             verified = True
             node.get_logger().info('verified: pads within %.0f mm of the cube'
                                    % (tolerance_m * 1000))
             break
-        drive_m = max(-0.06, min(0.06, residual_x))
-        if abs(drive_m) > 0.004:
-            node.get_logger().info('adjusting base by %+.3f m' % drive_m)
+        aim[0] += residual_x
+        aim[1] -= residual_y
+        solved = None
+        for pitch_try in GRASP_PITCH_ORDER:
+            candidate = grasp_pose(aim, pitch_try, dz)
+            solved = node.solve_ik(candidate, pitch_quat(pitch_try))
+            if solved is not None:
+                node.get_logger().info('re-aim: pitch %.0f at %s'
+                                       % (pitch_try,
+                                          [round(v, 3) for v in candidate]))
+                target, pitch_deg, joints = candidate, pitch_try, solved
+                break
+        if solved is None:
+            # the arm cannot reach the moved aim; nudge the base instead, which is
+            # the only other thing that changes where the cube is
+            drive_m = max(-0.03, min(0.03, residual_x))
+            node.get_logger().warn('no ik for the corrected aim; moving the base '
+                                   '%+.3f m instead' % drive_m)
             node.drive_forward(drive_m, speed=0.03)
             point[0] -= drive_m
-            last_drive = drive_m
+            aim[0] -= drive_m
             time.sleep(0.6)
+            continue
+        node.send_arm(joints, seconds=3.0)
+        time.sleep(0.8)
     if not verified:
         node.get_logger().warn('could not verify the pads around the cube; '
                                'closing anyway and recording what happens')
 
     # 4. Close, lowering the aim a centimetre at a time when the jaws pass each
     #    other. IK refusing is the answer to how far this arm can reach down.
+    #    Lowering moves the pads in x as well as z, so every step re-aims from the
+    #    measured point and re-closes the range afterwards: the run that descended
+    #    4 cm without re-checking closed empty four times, with nothing re-verified
+    #    after the first lowering.
+    dz_now = dz
+    pitch_now = pitch_deg
     for lower in range(4):
         position, stalled = node.close_slowly()
         node.get_logger().info('close: gripper at %s stalled=%s'
@@ -599,13 +614,14 @@ def main():
         node.get_logger().info('jaws closed empty; lowering the aim by 1 cm')
         node.send_gripper(0.019)
         time.sleep(0.6)
-        target[2] -= 0.01
+        dz_now -= 0.01
         solved = None
-        for pitch_deg in GRASP_PITCH_ORDER:
-            solved = node.solve_ik(target, pitch_quat(pitch_deg))
+        for pitch_now in GRASP_PITCH_ORDER:
+            target = grasp_pose(point, pitch_now, dz_now)
+            solved = node.solve_ik(target, pitch_quat(pitch_now))
             if solved is not None:
                 node.get_logger().info('lowered: pitch %.0f at %s'
-                                       % (pitch_deg,
+                                       % (pitch_now,
                                           [round(v, 3) for v in target]))
                 break
         if solved is None:
@@ -616,6 +632,19 @@ def main():
         joints = solved
         node.send_arm(joints, seconds=4.0)
         time.sleep(0.8)
+
+        pads = node.fingertip_midpoint()
+        if pads is None:
+            continue
+        drift_x = (point[0] - FINGER_REACH_M) - pads[0]
+        drift_y = point[1] - pads[1]
+        node.get_logger().info('after lowering: pads dx %+.3f dy %+.3f'
+                               % (drift_x, drift_y))
+        if abs(drift_x) > tolerance_m:
+            node.get_logger().info('re-closing range by %+.3f m' % drift_x)
+            node.drive_forward(drift_x, speed=0.02)
+            point[0] -= drift_x
+            time.sleep(0.6)
     time.sleep(1.0)
 
     # 5. Lift.
