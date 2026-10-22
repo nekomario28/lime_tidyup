@@ -1,19 +1,20 @@
 #!/usr/bin/env python3
-"""Spawn the robot with a camera sensor injected into its own URDF.
+"""Spawn the robot with its camera and depth sensors attached.
 
-The robot's description has no camera and the RealSense Gazebo plugin cannot
-find one, so the behaviour tree has no image to work with. A camera model placed
-in the world is not a substitute: it stays where it was spawned and the robot
-drives out of (or over) it. Moving a world model would need
-libgazebo_ros_state.so, which segfaults gzserver in this world, so the camera is
-attached to base_link instead — the image then follows the robot for free.
+The robot's description has no camera and the upstream RealSense plugin cannot
+provide one here, so the behaviour tree would have no image at all. A camera model
+placed in the world is not a substitute: it stays where it was spawned and the
+robot drives out of (or over) it. Moving a world model would need
+libgazebo_ros_state.so, which segfaults gzserver in this world.
 
-The sensors hang on the mount link from sim/camera_mount.py: a <pose> written
-inside a <sensor> is dropped by the URDF->SDF conversion, so the offset has to be
-a link. The same numbers drive sim/camera_tf.py, so images, depth and TF agree. A depth sensor rides alongside for the 3D cube centre: it
-shares the pose and optics, so a box measured in the colour image indexes the
-depth image without a separate registration step. It sits at the front edge of the base: further back the
-robot's own body fills the frame and nothing is detected.
+The sensors therefore hang on a mount link defined in sim/camera_mount.py, whose
+origin the URDF->SDF conversion does honour -- a <pose> written inside a <sensor>
+is silently dropped, which is how an earlier version ended up with a camera at the
+link origin and no tilt. The same numbers drive sim/camera_tf.py, so images, depth
+and TF agree by construction.
+
+A depth sensor rides alongside the colour one so a box measured in the colour image
+indexes the depth image without a separate registration step.
 """
 from __future__ import annotations
 

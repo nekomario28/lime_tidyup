@@ -14,7 +14,6 @@ from __future__ import annotations
 
 import json
 import math
-import os
 import subprocess
 import sys
 import threading
@@ -106,7 +105,6 @@ class Probe(Node):
 
     def on_info(self, msg):
         self.info = msg
-
 
     def on_result(self, msg):
         self.result = msg.data

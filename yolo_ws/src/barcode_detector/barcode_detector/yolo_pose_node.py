@@ -71,9 +71,6 @@ class YoloPoseNode(Node):
         self.declare_parameter('depth_pose_enabled', True)
         self.declare_parameter('depth_pose_minimum_valid_fraction', 0.30)
         self.declare_parameter('depth_pose_maximum_mad_m', 0.02)
-        #: Downward pitch of the camera in base_link, used to turn the measured
-        #: face point into the cube centre (see _depth_centre_pose).
-        self.declare_parameter('camera_pitch_rad', 0.45)
         #: Constant offset added to the depth-centre position, in the published
         #: frame. Calibrated against ground truth by sim/eval_cube_recognition.py;
         #: the residual is systematic, so it belongs in one parameter rather than

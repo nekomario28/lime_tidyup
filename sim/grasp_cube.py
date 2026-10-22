@@ -20,6 +20,7 @@ MoveIt would use; only the planner is skipped.
 from __future__ import annotations
 
 import json
+import math
 import sys
 import threading
 import time
@@ -27,7 +28,6 @@ import time
 import os
 
 import cv2
-import numpy as np
 import rclpy
 from cv_bridge import CvBridge
 from control_msgs.action import FollowJointTrajectory, GripperCommand
@@ -70,6 +70,7 @@ GRIPPER_EFFORT = 6.0
 #: The pairs are tried in this order, centre first because it is the honest aim.
 #: The low aim comes first: measured pads sit 4.4 cm above the cube centre in the
 #: centre-aim pose, so the jaws close over the cube's top instead of around it.
+GRASP_PITCH_ORDER = (150.0, 120.0, 135.0, 105.0)
 GRASP_CANDIDATES = (
     (120.0, -0.03),
     (135.0, -0.03),
@@ -146,7 +147,6 @@ class Grasper(Node):
                 cv2.putText(frame, 'cube %.2f' % detection.get('confidence', 0.0),
                             (x0, max(14, y0 - 8)), cv2.FONT_HERSHEY_SIMPLEX, 0.5,
                             (0, 190, 255), 1, cv2.LINE_AA)
-            pose3d = detection.get('pose_3d') or {}
             status = detection.get('pose_evidence', {}).get('pose_status', '')
             cv2.putText(frame, 'pose: %s' % status, (10, 24),
                         cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 1,
@@ -242,7 +242,6 @@ class Grasper(Node):
         place), so the command is never issued below 0.03 m/s.
         """
         speed = max(abs(speed), 0.03)
-        before = self.robot_world_x()
         seconds = abs(metres) / speed
         message = Twist()
         message.linear.x = speed if metres > 0 else -speed
@@ -438,23 +437,6 @@ class Grasper(Node):
         # between them; only a lagging joint is contact.
         return self.gripper_position, False
 
-    def close_and_check(self, settle=1.8):
-        """Close the fingers and report whether something stopped them.
-
-        The jaws close to GRIPPER_CLOSED on an empty hand; a 57 mm cube stops them
-        near q = 0.0075. That difference is the tactile signal, so no ground-truth
-        query is needed: if the joint stalls short of the command, the cube is
-        between the pads.
-        """
-        if not self.gripper_client.wait_for_server(timeout_sec=10.0):
-            raise SystemExit('/gripper_controller is not available')
-        goal = GripperCommand.Goal()
-        goal.command.position = float(GRIPPER_CLOSED)
-        goal.command.max_effort = float(GRIPPER_EFFORT)
-        self.gripper_client.send_goal_async(goal)
-        time.sleep(settle)
-        return self.gripper_position
-
     def send_gripper(self, position, effort=GRIPPER_EFFORT):
         if not self.gripper_client.wait_for_server(timeout_sec=10.0):
             raise SystemExit('/gripper_controller is not available')
@@ -471,12 +453,25 @@ class Grasper(Node):
         return True
 
 
+def grasp_pose(point, pitch_deg, dz=0.0):
+    """End-effector target that puts the pads on the cube centre.
+
+    With the palm pitched by p the pads lie EE_TO_PADS_M ahead of
+    end_effector_link along the tool axis, so the effector sits behind the cube by
+    that much sin(p) and below it by that much cos(p).
+    """
+    sin = math.sin(math.radians(pitch_deg))
+    cos = math.cos(math.radians(pitch_deg))
+    return [point[0] - EE_TO_PADS_M * sin, point[1],
+            point[2] + dz - EE_TO_PADS_M * cos]
+
+
+def pitch_quat(pitch_deg):
+    half = math.radians(pitch_deg) / 2.0
+    return (0.0, math.sin(half), 0.0, math.cos(half))
+
+
 def main():
-    # The base creeps forward after the tree aims (a longer first walk pushes the
-    # cube out of the camera view), so the cube measured here is that much closer
-    # than the estimate taken before the creep. Compensating keeps the grasp from
-    # depending on depth at 0.2 m, which is at the sensor's near limit.
-    creep_m = float(sys.argv[2]) if len(sys.argv) > 2 else 0.0
     lift_seconds = float(sys.argv[1]) if len(sys.argv) > 1 else 6.0
     rclpy.init()
     node = Grasper()
@@ -487,15 +482,11 @@ def main():
         raise SystemExit('no cube pose with a 3D position')
     point = node.to_base_link(pose)
     node.get_logger().info('cube in base_link: %.3f %.3f %.3f' % tuple(point))
-    # No base movement up front: IK is feasible at the approach distance but not
-    # when the cube is 0.17 m away (the arm cannot fold that tightly), so the base
-    # closes the horizontal residual *after* the arm has taken its pose. The pads
-    # then travel with the base and land on the cube without a second IK call.
-    del creep_m
 
-    # Close the range before posing: from where the tree leaves the robot the arm
-    # cannot bring its pads down to the cube, and closer it can. The command is
-    # measured (0.05 m/s for 2 s moved 0.098 m), so the target is advanced by it.
+    # 1. Range. From where the tree leaves the robot the pads cannot be posed low
+    #    enough, and closer they can: with the cube at 0.24 m instead of 0.29 m the
+    #    pitch 150 solution exists where 120 and 135 are refused. The drive is
+    #    measured (0.05 m/s for 2 s moved 0.098 m), so the target moves with it.
     if point[0] > GRASP_TARGET_DISTANCE_M:
         approach = min(0.06, point[0] - GRASP_TARGET_DISTANCE_M)
         node.get_logger().info('closing range by %.3f m to %.2f m'
@@ -504,45 +495,16 @@ def main():
         point[0] -= approach
         time.sleep(0.5)
 
-    # Aim the pads at the cube centre. With the palm pitched by p, the pads lie
-    # EE_TO_PADS_M ahead of end_effector_link along the tool axis, i.e. the
-    # effector has to sit behind the cube by that much sin(p) and below it by
-    # that much cos(p).
-    def grasp_pose(pitch_deg, dz=0.0):
-        import math
-        sin = math.sin(math.radians(pitch_deg))
-        cos = math.cos(math.radians(pitch_deg))
-        return [point[0] - EE_TO_PADS_M * sin, point[1],
-                point[2] + dz - EE_TO_PADS_M * cos]
-
-    def pitch_quat(pitch_deg):
-        import math
-        half = math.radians(pitch_deg) / 2.0
-        return (0.0, math.sin(half), 0.0, math.cos(half))
-
-    grasp = grasp_pose(*GRASP_CANDIDATES[0])
-
-    # Opening the fingers before the descent matters: arriving with them shut
-    # pushes the cube instead of straddling it.
+    # 2. Pose. The jaws must be open before the descent, or they push the cube
+    #    instead of straddling it.
     node.get_logger().info('opening the gripper')
     node.send_gripper(0.019)
     time.sleep(1.0)
 
-    # Close the loop on the pads themselves: solve, move, measure where the pads
-    # ended up, correct the end-effector target by that error, repeat.
-    # Solve, move, measure the pads, correct. Two problems are handled here:
-    # the measured centre can be out of the arm's reach (KDL returns -31), and
-    # with position-only IK the pads do not sit a fixed distance below
-    # end_effector_link, so the offset has to be measured rather than assumed.
-    # One pose, one measurement, one base correction. Driving the base does not
-    # change the base_link gap between the pads and the cube (both ride on the
-    # base), so re-solving IK after a drive only walks the arm back: that mistake
-    # kept the error at 7.7 cm forever and once shoved the cube 1.2 m.
-    target = list(grasp)
+    target = None
     joints = None
-    quat = None
     for pitch_deg, dz in GRASP_CANDIDATES:
-        target = grasp_pose(pitch_deg, dz)
+        target = grasp_pose(point, pitch_deg, dz)
         quat = pitch_quat(pitch_deg)
         joints = node.solve_ik(target, quat)
         node.get_logger().info('pitch %.0f dz %+.3f at %s -> %s'
@@ -554,7 +516,6 @@ def main():
     if joints is None:
         raise SystemExit('ik found no solution within reach (cube at %s)'
                          % [round(v, 3) for v in point])
-
     node.get_logger().info('ee target %s joints %s'
                            % ([round(v, 3) for v in target],
                               [round(v, 3) for v in joints]))
@@ -562,18 +523,12 @@ def main():
                       % (GRASP_CANDIDATES[0][0], *target), target=target)
     node.send_arm(joints, seconds=5.0)
     time.sleep(1.0)
-    pads = node.fingertip_midpoint()
-    if pads is None:
-        raise SystemExit('no fingertip transform after the move')
-    error = [point[i] - pads[i] for i in range(3)]
-    node.get_logger().info('pads at %s, error (%.3f, %.3f, %.3f) m'
-                           % ([round(v, 3) for v in pads], *error))
 
-    # Verify before closing, and adjust between attempts. The cube pose is
-    # re-read after every move (a message newer than the one we just used), the
-    # pads are measured from TF, and the residual between them drives the base.
-    # Closing only happens once the residual is inside tolerance, so a short or
-    # long drive cannot end in a blind squeeze.
+    # 3. Verify. Re-read the cube pose and measure the pads, then drive the
+    #    residual in; close only once they are within tolerance. Driving forward by
+    #    d brings the cube d closer in base_link, so when the publisher is silent
+    #    (it stops while the base moves -- measured a 73 s gap) the same arithmetic
+    #    advances the target instead of stalling the loop.
     tolerance_m = 0.012
     verified = False
     last_drive = 0.0
@@ -583,24 +538,16 @@ def main():
             raise SystemExit('no fingertip transform')
         fresh = node.wait_for_pose()
         if fresh is None:
-            # The publisher stops while the base is driven (measured: a 73 s gap),
-            # so waiting for it deadlocked the loop and it re-issued the same move.
-            # The commanded motion is known and accurate (0.05 m/s for 2 s moved
-            # 0.098 m): apply it to the target directly and say so.
             node.get_logger().info(
                 'no fresh pose; applying the commanded %.3f m to the target'
                 % last_drive)
         else:
             point = node.to_base_link(fresh)
-            pads_target = point[0] - FINGER_REACH_M
+            last_drive = 0.0
             node.get_logger().info(
                 're-measured cube at %.3f %.3f %.3f (%s)'
                 % (point[0], point[1], point[2],
                    fresh.get('geometry_id', '?')))
-            last_drive = 0.0
-        # Always recompute from `point`: when the pose was not refreshed, `point`
-        # is the analytically advanced target, and using the old pads_target made
-        # the loop re-issue the same move (measured: four identical "dx 0.049").
         pads_target = point[0] - FINGER_REACH_M
         residual_x = pads_target - pads[0]
         residual_y = point[1] - pads[1]
@@ -609,28 +556,22 @@ def main():
             % (attempt + 1, pads[0], pads_target, residual_x, residual_y))
         if abs(residual_x) <= tolerance_m and abs(residual_y) <= 0.015:
             verified = True
-            node.get_logger().info(
-                'verified: pads within %.0f mm of the cube centre'
-                % (tolerance_m * 1000))
+            node.get_logger().info('verified: pads within %.0f mm of the cube'
+                                   % (tolerance_m * 1000))
             break
         drive_m = max(-0.06, min(0.06, residual_x))
         if abs(drive_m) > 0.004:
             node.get_logger().info('adjusting base by %+.3f m' % drive_m)
             node.drive_forward(drive_m, speed=0.03)
-            # moving forward by d brings the cube d closer, in base_link terms
             point[0] -= drive_m
             last_drive = drive_m
             time.sleep(0.6)
-
     if not verified:
-        node.get_logger().warn(
-            'could not verify the pads around the cube; closing anyway and '
-            'recording what happens')
+        node.get_logger().warn('could not verify the pads around the cube; '
+                               'closing anyway and recording what happens')
 
-    # Then close the height: the pads arrive at the cube's top edge, so try going
-    # lower, one centimetre at a time, re-solving with the pitch ladder each time.
-    # IK refuses past a point (measured -31), which is itself the answer about how
-    # far this arm can reach down.
+    # 4. Close, lowering the aim a centimetre at a time when the jaws pass each
+    #    other. IK refusing is the answer to how far this arm can reach down.
     for lower in range(4):
         position, stalled = node.close_slowly()
         node.get_logger().info('close: gripper at %s stalled=%s'
@@ -644,7 +585,7 @@ def main():
         time.sleep(0.6)
         target[2] -= 0.01
         solved = None
-        for pitch_deg in (120.0, 105.0, 135.0, 150.0):
+        for pitch_deg in GRASP_PITCH_ORDER:
             solved = node.solve_ik(target, pitch_quat(pitch_deg))
             if solved is not None:
                 node.get_logger().info('lowered: pitch %.0f at %s'
@@ -652,16 +593,16 @@ def main():
                                           [round(v, 3) for v in target]))
                 break
         if solved is None:
-            node.get_logger().warn(
-                'ik will not go %.2f m lower; this arm cannot reach the cube '
-                'from this distance' % (0.01 * (lower + 1)))
+            node.get_logger().warn('ik will not go %.2f m lower; this arm cannot '
+                                   'reach the cube from here'
+                                   % (0.01 * (lower + 1)))
             break
         joints = solved
         node.send_arm(joints, seconds=4.0)
         time.sleep(0.8)
-
     time.sleep(1.0)
 
+    # 5. Lift.
     lifted = list(joints)
     lifted[1] += 0.25          # shoulder up
     lifted[2] -= 0.30          # elbow compensates, keeping the wrist above

@@ -204,32 +204,6 @@ def measure_sticker_span(image_bgr, bbox_xyxy, corners, side_length_m):
     return min(upper, max(lower, span))
 
 
-def quad_from_frontend(image_bgr, bbox_xyxy):
-    """Tight face quad and colour from the two-face frontend, if it resolves one.
-
-    The colour blob's bbox carries a 25 percent margin, so using it as the face
-    quad makes the quad larger than the face -- that was one of the two reasons the
-    first version failed. The two-face frontend already fits each visible face to
-    its own mask and snaps it to the silhouette, so its vertices are the right
-    corners, and it names the colour at the same time.
-    """
-    from .cube8_two_face_color_frontend import (
-        Cube8TwoFaceColorError, recover_two_face_view_local_from_bgr)
-
-    try:
-        observation = recover_two_face_view_local_from_bgr(image_bgr, bbox_xyxy)
-    except Cube8TwoFaceColorError:
-        return None, None
-    best = None
-    for color, quad in observation.face_quads.items():
-        support = int(observation.support_pixels.get(color, 0))
-        if best is None or support > best[0]:
-            best = (support, color, quad.vertices)
-    if best is None:
-        return None, None
-    return np.asarray(best[2], dtype=np.float64), best[1]
-
-
 def estimate_face_pose(
     image_bgr,
     camera_matrix,
@@ -247,16 +221,13 @@ def estimate_face_pose(
     lab = face_lab(image_bgr, bbox_xyxy)
     label = classify_lab(lab)
     measured_span = None
-    corners, quad_source = quad_from_frontend(image_bgr, bbox_xyxy)
-    if corners is not None:
-        quad_source = 'two_face_frontend'
-    else:
-        # The frontend needs two faces; with one visible, fit that colour's own
-        # mask instead of the margin-inflated blob box.
-        corners = face_quad_from_color(image_bgr, bbox_xyxy, label) if label else None
-        quad_source = 'face_color_mask' if corners is not None else 'blob_mask'
-        if corners is None:
-            corners = face_quad_corners(image_bgr, bbox_xyxy)
+    # quad_from_frontend is not called: the two-face frontend refuses when only one
+    # face is visible, which is this mount's normal case, and running it per frame
+    # only costs time. The colour's own mask is the tight quad here.
+    corners = face_quad_from_color(image_bgr, bbox_xyxy, label) if label else None
+    quad_source = 'face_color_mask' if corners is not None else 'blob_mask'
+    if corners is None:
+        corners = face_quad_corners(image_bgr, bbox_xyxy)
 
     # Measuring the span from the object silhouette was tried and is worse: the
     # silhouette is not a reliable width reference at this mount (measured 12-37 cm
