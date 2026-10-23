@@ -194,14 +194,14 @@ def main():
         truth = [truth_world[i] - robot_world[i] for i in range(3)]
         error = math.dist(measured, truth)
         # Every route in the message is measured against the same truth, keyed by its
-        # own geometry id. Selecting by field name would report one route's error under
-        # another's label: the node publishes the face solve as pose_3d and the depth
-        # centre as pose_3d_depth, so `pose_3d_face` is empty and a fixed lookup reads
-        # the depth pose while calling it the face.
+        # own geometry id: pose_3d carries whichever route the node chose to publish as
+        # primary, pose_3d_face the single-view solve beside it. Selecting by field name
+        # would report one route's error under the other's label -- which is what an
+        # earlier version did when it read pose_3d_face into a variable called face_pose
+        # after the node had stopped filling it.
         routes = {}
         for detection in result.get('detections', []):
             for candidate in (detection.get('pose_3d'),
-                              detection.get('pose_3d_depth'),
                               detection.get('pose_3d_face')):
                 geometry = (candidate or {}).get('geometry_id')
                 if geometry and len(candidate.get('position_m') or []) == 3:

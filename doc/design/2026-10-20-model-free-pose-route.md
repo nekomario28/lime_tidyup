@@ -77,11 +77,17 @@ covers that case — six faces times four in-plane rotations, solved with IPPE f
 face's own colour mask, back-facing hypotheses pruned, and the face identified by
 comparing the sampled sticker colour against the standard palette.
 
-Its position measures the same as the depth centre (0.29-0.97 cm against 0.23-1.06 cm
-over 0.4-1.0 m, both against Gazebo truth), and it is what fills `pose_3d`: a grasp
-needs the orientation. The depth centre is published beside it as `pose_3d_depth`, and
-is what a consumer falls back to when the face solve refuses. Every route records its
-own `geometry_id`, so a consumer picks a route by name rather than by field position.
+Its position measures comparably to the depth centre — through the node at 0.4/0.6/0.8 m,
+0.33/0.59/0.53 cm against 0.10/0.31/0.50 cm — and both are published, so a consumer reads
+the position from whichever route and the orientation from the face. Which one occupies
+`pose_3d` (the primary slot) is decided by those numbers: the depth centre does, because
+it is the better position, and the face solve goes beside it as `pose_3d_face`. Each route
+records its own `geometry_id`, so a consumer that cares picks a route by geometry rather
+than by which field happens to be filled.
+
+Naming a field in a doc or a consumer is a claim about the node, so it is worth checking
+against the node: a contract described from the intent rather than from the publisher
+reads as implemented and is not.
 
 One property of the single-face solve determines what the grasp can do: **its orientation
 is quantised to the face grid**. The solve reports which face it is looking at, so a cube

@@ -697,13 +697,13 @@ class YoloPoseNode(Node):
                     # the face solve does succeed with the face identified, so a refusal
                     # is about this frame, not about the range.
                     self.get_logger().debug('face pose refused: %s' % error)
-                # The depth centre keeps the primary slot: through this node it
-                # measures 1.0-1.3 cm, while the same face solve that reports
-                # 1.4-2.4 cm when called directly reports 6.4-7.5 cm here. Until
-                # that discrepancy is explained (one of the frame conversions is
-                # off by roughly the camera's 0.059 m offset) the face pose ships
-                # beside the depth pose rather than replacing it, so a consumer can
-                # choose: position from depth, rotation from the face.
+                # The depth centre keeps the primary slot on measurement: through this
+                # node at 0.4/0.6/0.8 m it reports 0.10/0.31/0.50 cm and the face solve
+                # 0.33/0.59/0.53 cm -- comparable, with the depth centre ahead over the
+                # range a grasp works in and the two swapping order by 0.8 m. The face
+                # solve ships beside it rather than replacing it, for the orientation it
+                # carries, which cannot align anything by itself: it reports which face
+                # it sees, quantised to the face grid.
                 depth_pose = self._depth_centre_pose(box.box_xyxy, timestamp)
                 if depth_pose is not None:
                     detection['pose_3d'] = depth_pose
