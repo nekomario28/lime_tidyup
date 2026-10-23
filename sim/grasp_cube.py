@@ -414,26 +414,31 @@ class Grasper(Node):
         return True
 
 
-def reachable_pad_x(node, pitch_deg, height):
-    """The furthest forward the pads can be posed at this pitch and height.
+def reachable_aim_x(node, pitch_deg, aim):
+    """The furthest forward aim the arm accepts at this pitch, in aim space.
 
-    Measured with the IK service rather than assumed: the arm's envelope is what
-    decides where the base should stop, and it changes with the pitch (only 150
-    solves at 0.29 m, while at 0.24 m 150 and 135 both do). Bisection on "does IK
-    solve here" gives the boundary in a handful of service calls.
+    Measured by bisecting the same command the sweep will send, so the room it reports
+    is the room the sweep can actually spend. Two ways of asking this were wrong: the
+    reach was probed at the cube's centre height rather than the height the pads work
+    (measured 0.307 m at the centre, 4 mm less 8 cm lower), and it was compared against
+    the pad position while the sweep advances the aim -- so a run reported 67 mm of room
+    and then stopped after one 5 mm step, with "arm cannot reach".
     """
-    low, high = REACH_SEARCH_M
-    probe = grasp_pose([high, 0.0, height], pitch_deg, 0.0)
-    if node.solve_ik(probe, pitch_quat(pitch_deg)) is not None:
+    low, high = aim[0], REACH_SEARCH_M[1]
+    if solve_aim(node, [high, aim[1], aim[2]], pitch_deg) is not None:
         return high
     for _ in range(REACH_BISECTIONS):
         middle = 0.5 * (low + high)
-        probe = grasp_pose([middle, 0.0, height], pitch_deg, 0.0)
-        if node.solve_ik(probe, pitch_quat(pitch_deg)) is not None:
-            low = middle
-        else:
+        if solve_aim(node, [middle, aim[1], aim[2]], pitch_deg) is None:
             high = middle
+        else:
+            low = middle
     return low
+
+
+def solve_aim(node, aim, pitch_deg):
+    """The joints for this aim, or None when IK refuses it. Does not move the arm."""
+    return node.solve_ik(grasp_pose(aim, pitch_deg, 0.0), pitch_quat(pitch_deg))
 
 
 def aim_at_pads(node, point):
@@ -574,28 +579,32 @@ def main():
             point[0] -= creep
             time.sleep(0.5)
             continue
-        pads = node.fingertip_midpoint()
-        if pads is None:
-            break
-        reach_x = reachable_pad_x(node, pitch_deg, pads[2])
-        room = reach_x - pads[0]
+        reach_x = reachable_aim_x(node, pitch_deg, aim)
+        room = reach_x - aim[0]
         if room >= REACH_MARGIN_M:
             node.get_logger().info(
-                'pads at %.3f m, reach %.3f m at that height: %.3f m of search room'
-                % (pads[0], reach_x, room))
+                'aim %.3f m, arm accepts up to %.3f m at that height: %.3f m of '
+                'search room' % (aim[0], reach_x, room))
             break
         creep = REACH_MARGIN_M - room
+        if creep <= 0.002:
+            # Within a millimetre of the reserve: the reserve is there to leave the
+            # sweep a step, and driving 0 m here only bought another aim round.
+            node.get_logger().info(
+                'aim %.3f m, arm accepts up to %.3f m: %.3f m of room, at the reserve'
+                % (aim[0], reach_x, room))
+            break
         node.get_logger().info(
-            'pads at %.3f m, reach %.3f m: only %.3f m of room, driving forward %.3f m'
-            % (pads[0], reach_x, room, creep))
+            'aim %.3f m, arm accepts up to %.3f m: only %.3f m of room, driving '
+            'forward %.3f m' % (aim[0], reach_x, room, creep))
         node.drive_forward(creep, speed=0.03)
         point[0] -= creep
         time.sleep(0.5)
     if joints is None:
         raise SystemExit('ik found no solution within reach (cube at %s)'
                          % [round(v, 3) for v in point])
-    target = grasp_pose(aim, pitch_deg, 0.0)
-    node.draw_overlay('aim: pitch %.0f at %.3f m' % (pitch_deg, aim[0]), target=target)
+    node.draw_overlay('aim: pitch %.0f at %.3f m' % (pitch_deg, aim[0]),
+                      target=grasp_pose(aim, pitch_deg, 0.0))
 
     # 3. Hand over to touch. The camera is no longer a reference here: the arm sits
     #    between it and the cube, and re-measuring made the cube walk forward about
@@ -606,6 +615,7 @@ def main():
     #    adaptive doubling step was measured to grip in none of three runs while the
     #    fixed one gripped in four; see the constants.
     gripped = False
+    swept = 0.0
     for level in range(TOUCH_LOWER_STEPS + 1):
         for creep in range(TOUCH_CREEP_STEPS + 1):
             position, stalled = node.close_slowly()
@@ -613,8 +623,10 @@ def main():
                 'touch %d.%d: gripper at %s stalled=%s'
                 % (level, creep, 'unknown' if position is None
                    else '%.4f' % position, stalled))
+            # Drawn from the current aim, so the cross in the recorded view moves with
+            # the sweep instead of marking where the first aim was.
             node.draw_overlay('touch %d.%d: stalled=%s' % (level, creep, stalled),
-                              target=target)
+                              target=grasp_pose(aim, pitch_deg, 0.0))
             if stalled:
                 node.get_logger().info('fingers stopped on the cube: gripping')
                 gripped = True
@@ -623,28 +635,29 @@ def main():
             time.sleep(0.5)
             if creep == TOUCH_CREEP_STEPS:
                 break
-            if level == 0 and creep == 0:
-                # the aim already sits where the pads landed, which is the best
-                # estimate there is; the sweep moves out from there
-                pass
             aim[0] += TOUCH_CREEP_M
             if hold_aim(node, aim, pitch_deg) is None:
                 node.get_logger().info('arm cannot reach %.3f m; ending this sweep'
                                        % aim[0])
                 aim[0] -= TOUCH_CREEP_M
                 break
+            swept += TOUCH_CREEP_M
         if gripped or level == TOUCH_LOWER_STEPS:
             break
         node.get_logger().info('nothing at this height; lowering the aim by %.0f mm'
                                % (TOUCH_LOWER_M * 1000))
-        aim[0] -= TOUCH_CREEP_M * TOUCH_CREEP_STEPS
+        # Back to where this level started before descending. Undoing the full sweep
+        # instead sent the aim behind its starting point whenever the arm had ended the
+        # sweep early, so the next level searched from the wrong place.
+        aim[0] -= swept
+        swept = 0.0
         aim[2] -= TOUCH_LOWER_M
         if hold_aim(node, aim, pitch_deg) is None:
             node.get_logger().warn('ik will not go lower; this arm cannot reach the '
                                    'cube from here')
             break
 
-    # 5. Lift.
+    # 4. Lift.
     lifted = list(joints)
     lifted[1] += 0.25          # shoulder up
     lifted[2] -= 0.30          # elbow compensates, keeping the wrist above
