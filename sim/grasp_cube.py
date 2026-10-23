@@ -44,6 +44,23 @@ from trajectory_msgs.msg import JointTrajectory, JointTrajectoryPoint
 from pose_math import transform_point  # noqa: E402
 
 ARM_JOINTS = ['joint1', 'joint2', 'joint3', 'joint4', 'joint5', 'joint6']
+
+
+def wait_for_future(future, timeout):
+    """Wait for an async ROS result without spinning its node a second time.
+
+    The grasp node is already spinning in its callback thread. Calling
+    ``rclpy.spin_until_future_complete`` from the main thread spins the same node
+    concurrently and can corrupt Humble's wait set (observed: ``IndexError: wait set
+    index too big`` while awaiting a trajectory result).
+    """
+    completed = threading.Event()
+    future.add_done_callback(lambda _future: completed.set())
+    if not completed.wait(timeout):
+        return None
+    return future.result()
+
+
 EE_TO_PADS_M = 0.0443      # end_effector_link sits this far past the finger pads
 #: Where the pads actually contact, measured from the finger meshes
 #: (gripper_*_palm.stl, scaled by 0.001 in the URDF): the finger runs from
@@ -286,7 +303,7 @@ class Grasper(Node):
          pose.orientation.z, pose.orientation.w) = quat_xyzw
         request.ik_request.avoid_collisions = avoid_collisions
         request.ik_request.timeout.sec = 2
-        response = self.ik_client.call(request)
+        response = wait_for_future(self.ik_client.call_async(request), timeout)
         if response is None or response.error_code.val != 1:
             self.get_logger().warn(
                 'ik rejected %s (code %s)'
@@ -335,13 +352,11 @@ class Grasper(Node):
         trajectory.points = [point]
         goal.trajectory = trajectory
         future = self.arm_client.send_goal_async(goal)
-        rclpy.spin_until_future_complete(self, future, timeout_sec=15.0)
-        handle = future.result()
+        handle = wait_for_future(future, timeout=15.0)
         if handle is None or not handle.accepted:
             raise SystemExit('arm goal rejected')
         result = handle.get_result_async()
-        rclpy.spin_until_future_complete(self, result, timeout_sec=seconds + 20.0)
-        return result.result() is not None
+        return wait_for_future(result, timeout=seconds + 20.0) is not None
 
     def close_slowly(self, settle=1.6, step=0.003, dwell=0.35):
         """Close the jaws in small steps.
@@ -394,13 +409,11 @@ class Grasper(Node):
         goal.command.position = float(position)
         goal.command.max_effort = float(effort)
         future = self.gripper_client.send_goal_async(goal)
-        rclpy.spin_until_future_complete(self, future, timeout_sec=15.0)
-        handle = future.result()
+        handle = wait_for_future(future, timeout=15.0)
         if handle is None or not handle.accepted:
             raise SystemExit('gripper goal rejected')
         result = handle.get_result_async()
-        rclpy.spin_until_future_complete(self, result, timeout_sec=20.0)
-        return True
+        return wait_for_future(result, timeout=20.0) is not None
 
 
 def reachable_aim_x(node, pitch_deg, aim):
@@ -514,12 +527,7 @@ def pitch_quat(pitch_deg):
     return (0.0, math.sin(half), 0.0, math.cos(half))
 
 
-def main():
-    lift_seconds = float(sys.argv[1]) if len(sys.argv) > 1 else 6.0
-    rclpy.init()
-    node = Grasper()
-    threading.Thread(target=rclpy.spin, args=(node,), daemon=True).start()
-
+def run_grasp(node, lift_seconds):
     pose = node.wait_for_cube()
     if pose is None:
         raise SystemExit('no cube pose with a 3D position')
@@ -653,6 +661,21 @@ def main():
     node.send_arm(lifted, seconds=lift_seconds)
     time.sleep(2.0)
     print('grasp attempt finished')
+
+
+def main():
+    lift_seconds = float(sys.argv[1]) if len(sys.argv) > 1 else 6.0
+    rclpy.init()
+    node = Grasper()
+    spinner = threading.Thread(target=rclpy.spin, args=(node,), daemon=True)
+    spinner.start()
+    try:
+        run_grasp(node, lift_seconds)
+    finally:
+        if rclpy.ok():
+            rclpy.shutdown()
+        spinner.join(timeout=2.0)
+        node.destroy_node()
 
 
 if __name__ == '__main__':
