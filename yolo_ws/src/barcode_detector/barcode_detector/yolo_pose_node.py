@@ -746,9 +746,14 @@ class YoloPoseNode(Node):
                         'accepted' if face_pose['color_fixed_semantics_resolved']
                         else 'unresolved')
                 detections.append(detection)
+                # The overlay reports what this frame produced, which may be a pose from
+                # the fallback routes even though the two-face route refused: drawn as
+                # 'bbox_only' it said no pose on every frame of a run that was publishing
+                # one, which is exactly the window a reader trusts to explain a frame.
                 self._publish_model_free_overlay(
                     cv_image, image_msg, timestamp,
-                    status='bbox_only', reason=str(error),
+                    status=detection['pose_evidence'].get('pose_status', 'rejected'),
+                    reason=detection['pose_evidence'].get('pose_reason', str(error)),
                     bbox_source=box.source,
                 )
             else:

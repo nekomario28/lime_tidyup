@@ -26,6 +26,8 @@ import numpy as np
 COLOR_ACCEPTED = (80, 255, 80)
 COLOR_REJECTED = (60, 60, 255)
 COLOR_PENDING = (0, 200, 255)
+#: A remembered pose: still a pose, but not measured in this frame.
+COLOR_MEMORY = (255, 160, 60)
 COLOR_BOX = (255, 190, 0)
 COLOR_SILHOUETTE = (200, 200, 200)
 COLOR_FACE = (0, 255, 255)
@@ -118,6 +120,10 @@ def draw_cube_overlay(
     header_color = {
         'accepted': COLOR_ACCEPTED,
         'resolved': COLOR_ACCEPTED,
+        # The model-free fallbacks: a pose was published, reached this way.
+        'depth_centre': COLOR_ACCEPTED,
+        'face_quad': COLOR_ACCEPTED,
+        'memory': COLOR_MEMORY,
         'rejected': COLOR_REJECTED,
         'unresolved': COLOR_PENDING,
     }.get(str(status).lower(), COLOR_PENDING)
