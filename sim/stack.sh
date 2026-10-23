@@ -78,7 +78,8 @@ case "${stage}" in
             --out "${ev}/scene.mjcf" \
             ${CCCSIM_MJ_CUBE_X:+--cube-x "${CCCSIM_MJ_CUBE_X}"} \
             ${CCCSIM_MJ_CUBE_YAW:+--cube-yaw-deg "${CCCSIM_MJ_CUBE_YAW}"} \
-            ${CCCSIM_MJ_CAMERA:+--camera}
+            ${CCCSIM_MJ_CAMERA:+--camera} \
+            ${CCCSIM_MJ_CAMERA_RESOLUTION:+--camera-resolution "${CCCSIM_MJ_CAMERA_RESOLUTION}"}
         ;;
     mujoco)
         # There is no simulation server to launch: MuJoCo is the physics inside the

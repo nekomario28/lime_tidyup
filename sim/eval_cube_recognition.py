@@ -33,7 +33,16 @@ import eval_common  # noqa: E402
 
 
 def model_pose(name, attempts=3):
-    """World pose of a Gazebo model (retried: gz model can time out)."""
+    """World pose of the robot, or None when this backend cannot be asked.
+
+    MuJoCo has no `gz model`, but it does not need one: the scene gives the base a
+    floating joint at the world origin, so the base is exactly there and the robot pose is
+    known rather than guessed. Reporting it as the nominal 0.02 m settle offset (which is
+    what the Gazebo fallback uses) would put 0.02 m of error into the truth -- measured,
+    that turned a correct 0.5016 m reading into a 2.17 cm "error".
+    """
+    if os.environ.get('CCCSIM_BACKEND', 'gazebo') == 'mujoco':
+        return {'x': 0.0, 'y': 0.0, 'z': 0.0}
     output = ''
     for _ in range(attempts):
         try:

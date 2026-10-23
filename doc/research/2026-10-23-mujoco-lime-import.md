@@ -142,3 +142,48 @@ commanded:      [0.0,    0.35,  -0.45,   0.3, 0.0,    0.0]   max error 0.055 rad
    `/compute_ik` と MoveIt を使うので、そのまま動く想定）
 3. `CameraPlugin` を既存トピック名（`/camera/camera/color/image_raw` ほか）に向け、
    MuJoCo の描画で認識が成立するかを測る
+
+
+## L2: MuJoCo の描画で認識を測る（実測）
+
+同じ `sim/eval_cube_recognition.py` を MuJoCo のカメラに対して走らせた（カメラは
+`sim/mj/build_scene.py --camera` が base に取り付け、`CameraPlugin` が既存のトピック名で
+配信する。知覚ノードは無改造）。
+
+```
+d=0.40  face-quad-v1 err 0.0571 m   face -x /orange
+d=0.60  face-quad-v1 err 0.0636 m   face -x /orange
+d=0.80  face-quad-v1 err 0.0532 m   face -x /orange
+d=1.00  face-quad-v1 err 0.0579 m   face -x /orange
+```
+
+**認識は成立している**: 3×3 のステッカー面を正しく捉え、面 `-x`・色 orange を正しく同定
+（Gazebo と同じ結論）。ただし**距離が約 1 割近くずれる**（誤差が距離に比例せずほぼ一定）。
+
+原因を実測で切り分けた結果:
+
+| 測ったもの | 値 | 解釈 |
+|---|---|---|
+| 深度画像の立方体面 | 0.912-0.915 m | 幾何（面まで 0.9125 m）と一致 → **描画は正しい** |
+| `colour_blob` が返す箱 | 54×54 px | 面の投影は 37.9 px → **箱が大きすぎる** |
+| 面クワッドの実測幅 | 39 px | ステッカー面 33.9 px / 面全体 37.9 px → 面全体を掴んでいる |
+| PnP の返す距離 | 0.83 m | 0.051/0.057 の仮定で 0.912 × 0.895 = 0.816 ✓ 説明がつく |
+
+つまり **MuJoCo の描画では色ソースの箱が立方体の面より広く出る**ため、クワッドが
+ステッカー面ではなく面全体を覆い、認識側が仮定する「ステッカー面＝0.051 m」との比だけ
+距離が縮む。Gazebo では箱がステッカー面に密着していたのでこのバイアスが出なかった。
+
+**これは MuJoCo のバグではなく、シーンの見え方に対する認識の頑健さの問題**（照明・
+アンチエイリアスで黒い素地の縁が暖色に寄る、などが候補）。次にやることは、シーンの
+照明/材質を Gazebo の見え方に寄せて箱が密着するようにし、再測定すること。
+切り分け用のスクリプトは `/tmp/mj_solve.py`・`/tmp/mj_quad.py`・`/tmp/mj_height.py` の形で
+使った（コンテナ内で実行）。
+
+## 統合の確認（再掲・追記）
+
+- 立方体の配置は `sim/spawn_cube.py` が両対応: MuJoCo では
+  `set_free_joint_state`（「Gazebo の set_entity_state 相当」）でシーンの自由関節を動かす
+- 立方体と台車の実姿勢は `FreeJointStatePublisherPlugin`（`/free_joint_states`）で読める
+  — 実測: cube world (1.0000, 0, 0.0284) / base_footprint world (0, 0, -0.0002)
+- カメラは **base のボディ内**に置く（`worldbody` 直下だと world 座標になり、base_link の
+  +0.06 m を失って距離に比例する誤差が出る。実測 0.8→2.6 cm）

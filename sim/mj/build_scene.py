@@ -55,6 +55,17 @@ GRIPPER_FORCE = 6.0
 #: The cube, as sim/spawn_cube.py makes it.
 CUBE_SIDE_M = 0.057
 CUBE_MASS_KG = 0.08
+#: base_footprint -> base_link, from the description's base_joint.
+BASE_FOOTPRINT_Z = 0.060
+#: The sticker grid the recognition expects, from the description's cube generator
+#: (rubik_pose_cube: FACELET_SIZE_M / FACELET_GAP_M) and the face colours it labels by
+#: (cube_pose_hypotheses.STANDARD_FACE_COLORS). A plain red box is enough for a physics
+#: question but not for recognition: the face solve reads the sticker colours.
+FACELET_SIZE_M = 0.0162
+FACELET_GAP_M = 0.0012
+FACE_COLORS_RGB = {'+x': (0.80, 0.05, 0.05), '-x': (0.90, 0.35, 0.03),
+                   '+y': (0.05, 0.15, 0.80), '-y': (0.05, 0.55, 0.10),
+                   '+z': (0.92, 0.92, 0.92), '-z': (0.90, 0.85, 0.10)}
 
 
 def keep_single_inertial(text, link_name):
@@ -158,55 +169,149 @@ def add_actuators(mjcf_text):
     return mjcf_text.replace('</mujoco>', block + '</mujoco>')
 
 
+def add_visual_settings(mjcf_text):
+    """A lit environment, in neutral greys.
+
+    Two measurements shaped this. MuJoCo's default render left the cube at saturation
+    72/255 and value 101/255, below what the recognition's colour gate accepts (90 and 40),
+    so the scene needs light. And the first sky I chose was blue (0.35 0.5 0.65), which is
+    hue-close to the cube's blue face: the recognition's colour masks matched the whole
+    background instead of the stickers, and the face quad came out 39 px wide where the
+    sticker field is 33.9 px -- a range error of about 0.11 m. The Gazebo world this is
+    compared against has a dark surround, so the sky here is neutral grey for the same
+    reason.
+    """
+    visual = ('  <visual>\n'
+              '    <headlight diffuse="0.8 0.8 0.8" ambient="0.35 0.35 0.35" '
+              'specular="0.1 0.1 0.1"/>\n'
+              '    <rgba haze="0.15 0.25 0.35 1"/>\n'
+              '    <global azimuth="120" elevation="-20"/>\n'
+              '  </visual>\n'
+              '  <asset>\n'
+              '    <texture type="skybox" builtin="gradient" rgb1="0.28 0.28 0.30" '
+              'rgb2="0.10 0.10 0.11" width="512" height="3072"/>\n'
+              '  </asset>\n')
+    return mjcf_text.replace('<worldbody>', visual + '  <worldbody>', 1)
+
+
 def add_floor_and_lighting(mjcf_text):
     """A lit, frictional floor: the cube's grasp depends on it, so this one is real."""
     scene = '''
-    <light name="key" pos="1.5 0 2.5" dir="-0.4 0 -1" directional="true"
-           diffuse="0.8 0.8 0.8" specular="0.1 0.1 0.1"/>
-    <geom name="floor" type="plane" size="4 4 0.05" rgba="0.45 0.45 0.5 1"
+    <light name="key" pos="1.5 0 3.0" dir="-0.3 0 -1" directional="true"
+           diffuse="1 1 1" specular="0.2 0.2 0.2"/>
+    <light name="fill" pos="0.5 -1.0 2.0" dir="0 0.3 -1" directional="true"
+           diffuse="0.6 0.6 0.6" specular="0 0 0"/>
+    <geom name="floor" type="plane" size="4 4 0.05" rgba="0.30 0.30 0.34 1"
           friction="1 0.005 0.0001"/>
 '''
     return mjcf_text.replace('  <worldbody>\n', '  <worldbody>\n' + scene, 1)
 
 
-def add_cube(mjcf_text, cube_x, yaw_deg=0.0):
+def _sticker_geoms(centre_x):
+    """54 thin plates (9 per face) carrying the face colours, visual-only.
+
+    contype/conaffinity 0 keeps them out of the contact solver: the sticker field is what
+    the camera reads, and 54 extra collision geoms on a 57 mm cube would put contact noise
+    into the physics the same run is measuring.
+    """
+    pitch = FACELET_SIZE_M + FACELET_GAP_M
+    half = CUBE_SIDE_M / 2.0
+    offset = 0.0004
+    lines = []
+    for face, rgb in FACE_COLORS_RGB.items():
+        axis = {'x': 0, 'y': 1, 'z': 2}[face[1]]
+        sign = 1.0 if face[0] == '+' else -1.0
+        for row in (-1, 0, 1):
+            for column in (-1, 0, 1):
+                position = [0.0, 0.0, 0.0]
+                position[axis] = sign * (half + offset)
+                others = [index for index in range(3) if index != axis]
+                position[others[0]] = column * pitch
+                position[others[1]] = row * pitch
+                size = [FACELET_SIZE_M / 2.0, FACELET_SIZE_M / 2.0, FACELET_SIZE_M / 2.0]
+                size[axis] = offset
+                lines.append('      <geom type="box" pos="%.4f %.4f %.4f" '
+                             'size="%.4f %.4f %.4f" rgba="%.2f %.2f %.2f 1" '
+                             'contype="0" conaffinity="0"/>'
+                             % (position[0], position[1], position[2],
+                                size[0], size[1], size[2], *rgb))
+    return lines
+
+
+def add_cube(mjcf_text, cube_x, yaw_deg=0.0, with_stickers=True):
     import math
 
     half = CUBE_SIDE_M / 2.0
     half_yaw = math.radians(yaw_deg) / 2.0
+    stickers = '\n'.join(_sticker_geoms(cube_x)) if with_stickers else ''
     scene = '''    <body name="cube" pos="%.4f 0 %.4f" quat="%.6f 0 0 %.6f">
       <freejoint name="cube_free"/>
-      <geom name="cube_geom" type="box" size="%.4f %.4f %.4f" rgba="0.85 0.12 0.12 1"
+      <geom name="cube_geom" type="box" size="%.4f %.4f %.4f" rgba="0.03 0.03 0.03 1"
             mass="%.3f" friction="0.9 0.005 0.0001"/>
+%s
     </body>
 ''' % (cube_x, half + 0.001, math.sin(half_yaw), math.cos(half_yaw),
-       half, half, half, CUBE_MASS_KG)
+       half, half, half, CUBE_MASS_KG, stickers)
     return mjcf_text.replace('  <worldbody>\n', '  <worldbody>\n' + scene, 1)
 
 
-def add_camera(mjcf_text, offset_xyz, offset_rpy):
+def add_camera(mjcf_text, offset_xyz, offset_rpy, name='sim_camera',
+               resolution=(640, 480), fovy_deg=42.0):
     """A camera on the base at the mount sim/camera_mount.py defines.
 
-    The CameraPlugin publishes whatever camera the MJCF names, so this has to match the
-    mount the static TF describes or the perception would be given a pose for one lens
-    and images from another -- the failure the mount link exists to prevent.
+    Two frames have to line up here, and that is the whole difficulty. Our optical frame
+    looks along +z with y down (what the perception assumes and what the static TF
+    describes), while MuJoCo's camera looks along -z with y up, so the camera's orientation
+    is the optical one with its y and z axes flipped.
+
+    It is attached **inside the base body**, not to the world: the mount offset is a
+    base_link offset, and a camera in `worldbody` sits at world coordinates -- measured,
+    that put it 6 cm below the base and produced a range error proportional to distance
+    (0.8 cm at 0.4 m to 2.6 cm at 1.0 m) that looked exactly like a modelling error in the
+    cube. The base_link offset is added to base_footprint's own 0.060 m.
+
+    The CameraPlugin names its parameters after the MJCF camera, and takes the frame it
+    advertises from its config, so the name here has to match sim/mj/plugins_mujoco.yaml.
     """
+    import sys
+
+    sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+    import camera_tf
+
+    mount = camera_tf.rpy_matrix(*offset_rpy)
+    optical = camera_tf.matrix_product(mount, camera_tf.OPTICAL_FROM_MOUNT)
+    # MuJoCo camera: -z forward, +y up; our optical frame: +z forward, +y down
+    flip = ((1.0, 0.0, 0.0), (0.0, -1.0, 0.0), (0.0, 0.0, -1.0))
+    rotation = camera_tf.matrix_product(optical, flip)
+    quat = quaternion_from_matrix(rotation)
+    x, y, z = offset_xyz
+    scene = ('      <camera name="%s" mode="fixed" pos="%.4f %.4f %.4f" '
+             'quat="%.6f %.6f %.6f %.6f" fovy="%.1f" resolution="%d %d"/>\n'
+             % (name, x, y, z, *quat, fovy_deg, resolution[0], resolution[1]))
+    return mjcf_text.replace('    <body name="base_footprint">',
+                             '    <body name="base_footprint">\n' + scene, 1)
+
+
+def quaternion_from_matrix(m):
+    """xyzw quaternion of a rotation matrix (the largest-diagonal branch)."""
     import math
 
-    roll, pitch, yaw = offset_rpy
-    x, y, z = offset_xyz
-    # the optical frame looks along +z with y down; the camera body here is the mount
-    # frame turned into it, so the same rotation as sim/camera_tf.py is applied
-    cy, sy = math.cos(yaw / 2.0), math.sin(yaw / 2.0)
-    cp, sp = math.cos(pitch / 2.0), math.sin(pitch / 2.0)
-    cr, sr = math.cos(roll / 2.0), math.sin(roll / 2.0)
-    quat = (sr * cp * cy - cr * sp * sy,
-            cr * sp * cy + sr * cp * sy,
-            cr * cp * sy - sr * sp * cy,
-            cr * cp * cy + sr * sp * sy)
-    scene = ('    <camera name="sim_camera" pos="%.4f %.4f %.4f" quat="%.6f %.6f %.6f '
-             '%.6f" fovy="42"/>\n' % (x, y, z, *quat))
-    return mjcf_text.replace('  </worldbody>', scene + '  </worldbody>', 1)
+    trace = m[0][0] + m[1][1] + m[2][2]
+    if trace > 0.0:
+        scale = math.sqrt(trace + 1.0) * 2.0
+        return ((m[2][1] - m[1][2]) / scale, (m[0][2] - m[2][0]) / scale,
+                (m[1][0] - m[0][1]) / scale, 0.25 * scale)
+    if m[0][0] > m[1][1] and m[0][0] > m[2][2]:
+        scale = math.sqrt(1.0 + m[0][0] - m[1][1] - m[2][2]) * 2.0
+        return (0.25 * scale, (m[0][1] + m[1][0]) / scale,
+                (m[0][2] + m[2][0]) / scale, (m[2][1] - m[1][2]) / scale)
+    if m[1][1] > m[2][2]:
+        scale = math.sqrt(1.0 + m[1][1] - m[0][0] - m[2][2]) * 2.0
+        return ((m[0][1] + m[1][0]) / scale, 0.25 * scale,
+                (m[1][2] + m[2][1]) / scale, (m[0][2] - m[2][0]) / scale)
+    scale = math.sqrt(1.0 + m[2][2] - m[0][0] - m[1][1]) * 2.0
+    return ((m[0][2] + m[2][0]) / scale, (m[1][2] + m[2][1]) / scale,
+            0.25 * scale, (m[1][0] - m[0][1]) / scale)
 
 
 def main():
@@ -217,8 +322,13 @@ def main():
     parser.add_argument('--cube-x', type=float, default=None,
                         help='place the cube this far ahead (m)')
     parser.add_argument('--cube-yaw-deg', type=float, default=0.0)
+    parser.add_argument('--no-stickers', action='store_true',
+                        help='plain cube (physics only) instead of the sticker grid')
     parser.add_argument('--camera', action='store_true',
                         help='add the base camera (needs camera_mount.OFFSET_*)')
+    parser.add_argument('--camera-resolution', default='640x480',
+                        help='camera resolution WxH; the Gazebo camera is 848x480 and the '
+                             'face solve scales with the quad it is given')
     arguments = parser.parse_args()
 
     out = Path(arguments.out).resolve()
@@ -227,17 +337,25 @@ def main():
     patch_urdf(arguments.urdf, arguments.meshes)
     text = build_mjcf(arguments.urdf, out)
     text = strip_the_camera(text)
+    text = add_visual_settings(text)
     text = add_floor_and_lighting(text)
     if arguments.cube_x is not None:
-        text = add_cube(text, arguments.cube_x, arguments.cube_yaw_deg)
+        text = add_cube(text, arguments.cube_x, arguments.cube_yaw_deg,
+                        with_stickers=not arguments.no_stickers)
     if arguments.camera:
         import sys
         sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
         import camera_mount
-        text = add_camera(text, camera_mount.OFFSET_XYZ, camera_mount.OFFSET_RPY)
-        print('camera: %s at %s rpy %s' % (camera_mount.MOUNT_LINK,
-                                           camera_mount.OFFSET_XYZ,
-                                           camera_mount.OFFSET_RPY))
+        width, _, height = arguments.camera_resolution.partition('x')
+        # the camera hangs on base_link, which the description puts 0.060 m above
+        # base_footprint; the scene's camera lives inside that body
+        x, y, z = camera_mount.OFFSET_XYZ
+        body_offset = (x, y, z + BASE_FOOTPRINT_Z)
+        text = add_camera(text, body_offset, camera_mount.OFFSET_RPY,
+                          resolution=(int(width), int(height)))
+        print('camera %s at %s rpy %s (optical frame sim_camera_color_optical_frame)'
+              % (camera_mount.MOUNT_LINK, camera_mount.OFFSET_XYZ,
+                 camera_mount.OFFSET_RPY))
     text = relax_joint_torque(text)
     text = add_actuators(text)
     out.write_text(text)

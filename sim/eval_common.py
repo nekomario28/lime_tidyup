@@ -152,12 +152,18 @@ def cube_in_frame(distance, camera, robot=(ROBOT_X_M, 0.0, BASE_Z_M)):
 
 
 def spawn_cube(distance, lateral=0.0, yaw=0.0):
-    """Replace the cube in the world at a known distance, through Gazebo's services."""
+    """Put the cube at a known distance, on whichever backend is running.
+
+    Gazebo needs the old body deleted first; MuJoCo's cube is part of the scene and is
+    moved by sim/spawn_cube.py through the engine's own service, so there is nothing to
+    delete and asking Gazebo's service would just time out.
+    """
     here = os.path.dirname(os.path.abspath(__file__))
-    subprocess.run(['ros2', 'service', 'call', '/delete_entity',
-                    'gazebo_msgs/srv/DeleteEntity', '{name: rubik_cube}'],
-                   capture_output=True, text=True, timeout=20)
-    time.sleep(0.5)
+    if os.environ.get('CCCSIM_BACKEND', 'gazebo') != 'mujoco':
+        subprocess.run(['ros2', 'service', 'call', '/delete_entity',
+                        'gazebo_msgs/srv/DeleteEntity', '{name: rubik_cube}'],
+                       capture_output=True, text=True, timeout=20)
+        time.sleep(0.5)
     subprocess.run(['python3', os.path.join(here, 'spawn_cube.py'), str(distance),
                     str(lateral), str(yaw)],
                    capture_output=True, text=True, timeout=40)
