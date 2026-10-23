@@ -151,33 +151,25 @@ commanded:      [0.0,    0.35,  -0.45,   0.3, 0.0,    0.0]   max error 0.055 rad
 配信する。知覚ノードは無改造）。
 
 ```
-d=0.40  face-quad-v1 err 0.0571 m   face -x /orange
-d=0.60  face-quad-v1 err 0.0636 m   face -x /orange
-d=0.80  face-quad-v1 err 0.0532 m   face -x /orange
-d=1.00  face-quad-v1 err 0.0579 m   face -x /orange
+d=0.40  face-quad-v1 err 0.0029 m   face -x /orange
+d=0.60  face-quad-v1 err 0.0055 m   face -x /orange
+d=0.80  face-quad-v1 err 0.0083 m   face -x /orange
+d=1.00  face-quad-v1 err 0.0029 m   face -x /orange
 ```
 
-**認識は成立している**: 3×3 のステッカー面を正しく捉え、面 `-x`・色 orange を正しく同定
-（Gazebo と同じ結論）。ただし**距離が約 1 割近くずれる**（誤差が距離に比例せずほぼ一定）。
+4 距離とも認識が成立し、面 `-x`・色 orange を同定。位置誤差は 2.9–8.3 mm。
 
-原因を実測で切り分けた結果:
+最初の評価では誤差が 5.3–6.4 cm と出たが、画像マスクや材質の問題ではなかった。
+PnP の出力を base_link に戻すと Z が真値から 0.0579 m ずれており、これは cube の辺長
+0.057 m と一致した。原因は MJCF のカメラ quaternion の成分順序: `quaternion_from_matrix`
+は `xyzw` を返す一方、MJCF は `wxyz` を要求するのに、そのまま XML に書いていた。
+軸の解釈がずれてカメラ画像と公開 optical TF が上下方向に不一致になっていた。
+MJCF 出力時に `wxyz` へ並べ替えると、1.0 m の位置誤差は 57.9 mm から 2.9 mm に減り、
+4 距離の全測定も上記の範囲に入った。同じ順序誤りが cube の yaw quaternion にもあったので
+併せて直し、両方のシリアライズを `sim/mj/test_build_scene.py` で固定した。
 
-| 測ったもの | 値 | 解釈 |
-|---|---|---|
-| 深度画像の立方体面 | 0.912-0.915 m | 幾何（面まで 0.9125 m）と一致 → **描画は正しい** |
-| `colour_blob` が返す箱 | 54×54 px | 面の投影は 37.9 px → **箱が大きすぎる** |
-| 面クワッドの実測幅 | 39 px | ステッカー面 33.9 px / 面全体 37.9 px → 面全体を掴んでいる |
-| PnP の返す距離 | 0.83 m | 0.051/0.057 の仮定で 0.912 × 0.895 = 0.816 ✓ 説明がつく |
-
-つまり **MuJoCo の描画では色ソースの箱が立方体の面より広く出る**ため、クワッドが
-ステッカー面ではなく面全体を覆い、認識側が仮定する「ステッカー面＝0.051 m」との比だけ
-距離が縮む。Gazebo では箱がステッカー面に密着していたのでこのバイアスが出なかった。
-
-**これは MuJoCo のバグではなく、シーンの見え方に対する認識の頑健さの問題**（照明・
-アンチエイリアスで黒い素地の縁が暖色に寄る、などが候補）。次にやることは、シーンの
-照明/材質を Gazebo の見え方に寄せて箱が密着するようにし、再測定すること。
-切り分け用のスクリプトは `/tmp/mj_solve.py`・`/tmp/mj_quad.py`・`/tmp/mj_height.py` の形で
-使った（コンテナ内で実行）。
+**修正前の「色ソースの箱が大きすぎる」説明は誤り**。デバッグ画像を生画像と取り違えた
+解析から書かれていたため撤回する。
 
 ## 統合の確認（再掲・追記）
 
@@ -186,4 +178,4 @@ d=1.00  face-quad-v1 err 0.0579 m   face -x /orange
 - 立方体と台車の実姿勢は `FreeJointStatePublisherPlugin`（`/free_joint_states`）で読める
   — 実測: cube world (1.0000, 0, 0.0284) / base_footprint world (0, 0, -0.0002)
 - カメラは **base のボディ内**に置く（`worldbody` 直下だと world 座標になり、base_link の
-  +0.06 m を失って距離に比例する誤差が出る。実測 0.8→2.6 cm）
+  +0.06 m を失う）。MJCF の quaternion は `wxyz` 順で書き、ROS の `xyzw` と混ぜない。

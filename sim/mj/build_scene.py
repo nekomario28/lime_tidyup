@@ -250,7 +250,7 @@ def add_cube(mjcf_text, cube_x, yaw_deg=0.0, with_stickers=True):
             mass="%.3f" friction="0.9 0.005 0.0001"/>
 %s
     </body>
-''' % (cube_x, half + 0.001, math.sin(half_yaw), math.cos(half_yaw),
+''' % (cube_x, half + 0.001, math.cos(half_yaw), math.sin(half_yaw),
        half, half, half, CUBE_MASS_KG, stickers)
     return mjcf_text.replace('  <worldbody>\n', '  <worldbody>\n' + scene, 1)
 
@@ -283,11 +283,13 @@ def add_camera(mjcf_text, offset_xyz, offset_rpy, name='sim_camera',
     # MuJoCo camera: -z forward, +y up; our optical frame: +z forward, +y down
     flip = ((1.0, 0.0, 0.0), (0.0, -1.0, 0.0), (0.0, 0.0, -1.0))
     rotation = camera_tf.matrix_product(optical, flip)
+    # MJCF quaternions are wxyz; quaternion_from_matrix returns xyzw.
     quat = quaternion_from_matrix(rotation)
     x, y, z = offset_xyz
     scene = ('      <camera name="%s" mode="fixed" pos="%.4f %.4f %.4f" '
              'quat="%.6f %.6f %.6f %.6f" fovy="%.1f" resolution="%d %d"/>\n'
-             % (name, x, y, z, *quat, fovy_deg, resolution[0], resolution[1]))
+             % (name, x, y, z, quat[3], quat[0], quat[1], quat[2],
+                fovy_deg, resolution[0], resolution[1]))
     return mjcf_text.replace('    <body name="base_footprint">',
                              '    <body name="base_footprint">\n' + scene, 1)
 
