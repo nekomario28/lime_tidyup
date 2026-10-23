@@ -330,20 +330,31 @@ if ${record}; then
         encode_recordings
     }
     encode_recordings() {
-        local view source
-        command -v ffmpeg >/dev/null || {
-            echo "[cccsim] ffmpeg not found; frames are in ${evidence_dir}/frames"
-            return
-        }
+        local view source frames
         for pair in "camera:camera" "third_person:observer" \
                     "overlay:overlay" "grasp:grasp"; do
             view="${pair%%:*}"
+            # Without --grasp nothing publishes the grasp view, so an empty one is
+            # expected rather than a defect.
+            ${grasp} || [[ "${view}" != "grasp" ]] || continue
             source="${evidence_dir}/frames/frames_${pair##*:}"
             [[ -d "${source}" ]] || continue
+            # An empty directory means the topic was never published, which is a
+            # publisher that died rather than a view with nothing to show: the grasp
+            # overlay stopped being drawn and only this caught it.
+            frames=$(ls -1 "${source}" 2>/dev/null | wc -l)
+            if [[ "${frames}" -eq 0 ]]; then
+                echo "[cccsim] no ${view} frames: ${source} is empty" >&2
+                continue
+            fi
+            command -v ffmpeg >/dev/null || continue
             ffmpeg -y -loglevel error -framerate 10 -i "${source}/%05d.jpg" \
                 -c:v libx264 -pix_fmt yuv420p -crf 22 \
                 "${evidence_dir}/${view}_view.mp4" || true
         done
+        if ! command -v ffmpeg >/dev/null; then
+            echo "[cccsim] ffmpeg not found; frames are in ${evidence_dir}/frames"
+        fi
         ls -1 "${evidence_dir}"/*.mp4 2>/dev/null || true
     }
     trap 'stop_recording; cleanup' EXIT

@@ -691,9 +691,11 @@ class YoloPoseNode(Node):
                     face_pose = self._single_view_pose(box.box_xyxy,
                                                        image_msg, timestamp)
                 except FacePoseError as error:
-                    # debug: a refusal is per-frame, and at grasp range (0.24 m) the
-                    # face quad is large enough that the solve often refuses, which
-                    # is why the depth centre is the fallback.
+                    # A refusal is per-frame and expected: the solve refuses whenever
+                    # the quad is incomplete or a vertex is behind the camera, which is
+                    # what the depth centre is the fallback for. Measured at 0.24-0.30 m
+                    # the face solve does succeed with the face identified, so a refusal
+                    # is about this frame, not about the range.
                     self.get_logger().debug('face pose refused: %s' % error)
                 # The depth centre keeps the primary slot: through this node it
                 # measures 1.0-1.3 cm, while the same face solve that reports

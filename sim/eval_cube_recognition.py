@@ -193,36 +193,48 @@ def main():
         robot_world = [robot['x'], robot['y'], robot['z'] + BASE_Z_OFFSET]
         truth = [truth_world[i] - robot_world[i] for i in range(3)]
         error = math.dist(measured, truth)
-        face_pose = None
+        # Every route in the message is measured against the same truth, keyed by its
+        # own geometry id. Selecting by field name would report one route's error under
+        # another's label: the node publishes the face solve as pose_3d and the depth
+        # centre as pose_3d_depth, so `pose_3d_face` is empty and a fixed lookup reads
+        # the depth pose while calling it the face.
+        routes = {}
         for detection in result.get('detections', []):
-            candidate = (detection.get('pose_3d_depth')
-                         if pose.get('geometry_id') == 'face-quad-v1'
-                         else detection.get('pose_3d_face')) or {}
-            if len(candidate.get('position_m') or []) == 3:
-                face_pose = candidate
-                break
-        face_error = None
-        if face_pose is not None:
-            face_position = node.to_base_link(face_pose['position_m'],
-                                              face_pose['frame_id'])
-            if face_position is not None:
-                face_error = math.dist(face_position, truth)
-                row.update(face_geometry=face_pose.get('geometry_id'),
-                           face=[round(v, 4) for v in face_position],
-                           face_error_m=round(face_error, 4),
-                           face_visible=face_pose.get('visible_face'),
-                           face_color=face_pose.get('face_color_label'))
+            for candidate in (detection.get('pose_3d'),
+                              detection.get('pose_3d_depth'),
+                              detection.get('pose_3d_face')):
+                geometry = (candidate or {}).get('geometry_id')
+                if geometry and len(candidate.get('position_m') or []) == 3:
+                    routes.setdefault(geometry, candidate)
+        route_errors = {}
+        for geometry, candidate in routes.items():
+            position = node.to_base_link(candidate['position_m'],
+                                         candidate['frame_id'])
+            if position is not None:
+                route_errors[geometry] = (candidate, position,
+                                          math.dist(position, truth))
+        face_only = next(((g, c, p, e) for g, (c, p, e) in route_errors.items()
+                          if 'face' in g), None)
+        if face_only is not None:
+            row.update(face_geometry=face_only[0],
+                       face=[round(v, 4) for v in face_only[2]],
+                       face_error_m=round(face_only[3], 4),
+                       face_visible=face_only[1].get('visible_face'),
+                       face_color=face_only[1].get('face_color_label'))
         row.update(status='ok', confidence=confidence,
                    geometry=pose.get('geometry_id'),
                    measured=[round(v, 4) for v in measured],
                    truth=[round(v, 4) for v in truth],
-                   error_m=round(error, 4))
+                   error_m=round(error, 4),
+                   route_error_m={g: round(e, 4)
+                                  for g, (_, _, e) in route_errors.items()})
         rows.append(row)
-        print('d=%.2f  %-16s err %.4f m   face %-3s/%s err %s'
-              % (distance, pose.get('geometry_id'), error,
+        print('d=%.2f  %s   face %-3s/%s'
+              % (distance,
+                 '  '.join('%s err %.4f m' % (geometry, values[2])
+                           for geometry, values in sorted(route_errors.items())),
                  (row.get('face_visible') or '-'),
-                 (row.get('face_color') or '-'),
-                 'none' if face_error is None else '%.4f m' % face_error))
+                 (row.get('face_color') or '-')))
 
     print('\nsummary')
     for row in rows:

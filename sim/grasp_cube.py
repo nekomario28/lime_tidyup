@@ -25,8 +25,6 @@ import sys
 import threading
 import time
 
-import os
-
 import cv2
 import rclpy
 from cv_bridge import CvBridge
@@ -50,7 +48,6 @@ EE_TO_PADS_M = 0.0443      # end_effector_link sits this far past the finger pad
 #: the link origin. With the grasp pitch of 120 deg that is 0.025*sin(120) =
 #: 0.022 m of forward reach beyond the point TF reports, which is exactly the
 #: gap that made the jaws close on air (0.05 assumed) or shove the cube (0.0).
-FINGER_REACH_M = 0.022
 #: Where the cube should sit in base_link when the arm takes its pose. The tree
 #: leaves it near 0.29 m, and at that distance the only IK-feasible orientation
 #: cannot bring the pads down to the cube's height; closer, the arm has room.
@@ -86,9 +83,9 @@ REACH_MARGIN_M = 0.01
 #: a 12 mm gate was discarding accuracy the arm had already delivered and handing the
 #: sweep a centimetre of it.
 PAD_TOLERANCE_M = 0.003
-#: Touch sweep, verified over four runs (grips at 0.0, 0.0, 0.5 and 1.0). The steps are
-#: deliberately fixed: an adaptive doubling step was tried and gripped in none of three
-#: runs, and the failure was not understood well enough to keep it.
+#: Touch sweep, verified over four runs (grips at 0.0, 0.0, 0.5 and 1.0). Fixed steps
+#: are a measurement, not a default: an adaptive doubling step gripped in none of three
+#: runs, so this one is what ships until that failure is understood.
 TOUCH_CREEP_M = 0.005
 TOUCH_CREEP_STEPS = 8
 TOUCH_LOWER_M = 0.005
@@ -110,9 +107,6 @@ class Grasper(Node):
     def __init__(self):
         super().__init__('grasp_cube')
         self.bridge = CvBridge()
-        overlay_dir = os.environ.get('CCCSIM_OVERLAY_DIR', '')
-        self.overlay_dir = overlay_dir
-        self.overlay_index = 0
         self.latest = None
         self.create_subscription(String, '/cube_pose_result', self.on_result, 1)
         self.tf_buffer = Buffer()
@@ -194,10 +188,6 @@ class Grasper(Node):
         message = self.bridge.cv2_to_imgmsg(frame, encoding='bgr8')
         message.header = image_msg.header
         self.overlay_pub.publish(message)
-        if self.overlay_dir:
-            path = '%s/%05d.jpg' % (self.overlay_dir, self.overlay_index)
-            self.overlay_index += 1
-            cv2.imwrite(path, frame)
 
     def project_to_pixel(self, point_base, image_frame):
         """Project a base_link point into the camera image."""
@@ -232,35 +222,6 @@ class Grasper(Node):
                 self.gripper_position = float(position)
                 return
 
-    @staticmethod
-    def robot_world_x():
-        """The robot's world x, used only to prove that a creep moved it.
-
-        A base move cannot change base_link coordinates -- both the cube and the
-        pads live there -- so the earlier "pads moved 0.0000" check could never
-        have detected a stalled drive.
-        """
-        import subprocess
-        try:
-            output = subprocess.run(
-                ['gz', 'model', '--model-name', 'turtlebot3_lime_system',
-                 '--info'], capture_output=True, text=True, timeout=25).stdout
-        except Exception as error:  # noqa: BLE001
-            print('robot_world_x failed:', type(error).__name__, error)
-            return None
-        lines = output.splitlines()
-        if not lines:
-            print('robot_world_x: gz model returned nothing')
-        for index, line in enumerate(lines):
-            if line.strip() == 'position {':
-                for offset in (1, 2, 3):
-                    if index + offset < len(lines) and 'x:' in lines[index + offset]:
-                        try:
-                            return float(lines[index + offset].split(':')[1])
-                        except ValueError:
-                            return None
-        return None
-
     def drive_forward(self, metres, speed=0.03):
         """Creep the base forward; the tree stops short of the arm's real reach.
 
@@ -282,32 +243,6 @@ class Grasper(Node):
     # -- perception -------------------------------------------------------
     def on_result(self, msg):
         self.latest = msg.data
-
-    def wait_for_pose(self, timeout=6.0, maximum_age=3.0):
-        """The latest cube pose, provided it is recent enough to act on.
-
-        Requiring a *newer* message than the last one was tried and deadlocked: the
-        publisher pauses for tens of seconds at a time (measured: a 73 s gap while
-        the base was being driven), so every check timed out and the loop kept
-        re-issuing the same move. Age is the honest test -- the pose carries the
-        node's own timestamp, on this clock.
-        """
-        deadline = time.time() + timeout
-        while time.time() < deadline:
-            if self.latest:
-                data = json.loads(self.latest)
-                age = time.time() - float(data.get('timestamp') or 0.0)
-                if age <= float(maximum_age):
-                    best = None
-                    for detection in data.get('detections', []):
-                        pose = detection.get('pose_3d') or {}
-                        if len(pose.get('position_m') or []) == 3:
-                            if best is None or detection['confidence'] > best[0]:
-                                best = (detection['confidence'], pose)
-                    if best is not None:
-                        return best[1]
-            time.sleep(0.1)
-        return None
 
     def wait_for_cube(self, timeout=20.0):
         deadline = time.time() + timeout
@@ -505,9 +440,9 @@ def aim_at_pads(node, point):
     """Command the arm until the pads themselves land on `point`.
 
     The pads do not go where the arm is asked to go: measured shortfalls are 2.2 cm
-    forward at pitch 150 and 4.4 cm in height at the centre aim. Tuning those numbers
-    by hand is what GRASP_CANDIDATES used to be. Instead each round moves the command
-    by exactly the error that was measured.
+    forward at pitch 150 and 4.4 cm in height at the centre aim. Those shortfalls are
+    not constants to tune -- each round moves the command by exactly the error that was
+    measured, so the aim lands on the cube whatever the pitch does to it.
 
     The first guess only has to be reachable -- the rounds do the aiming -- but one
     guess is not enough: at the pre-grasp distance the centre aim is refused at every
@@ -659,15 +594,17 @@ def main():
     if joints is None:
         raise SystemExit('ik found no solution within reach (cube at %s)'
                          % [round(v, 3) for v in point])
+    target = grasp_pose(aim, pitch_deg, 0.0)
+    node.draw_overlay('aim: pitch %.0f at %.3f m' % (pitch_deg, aim[0]), target=target)
 
     # 3. Hand over to touch. The camera is no longer a reference here: the arm sits
     #    between it and the cube, and re-measuring made the cube walk forward about
     #    2 cm per step (0.240 -> 0.261 -> 0.277). What is trustworthy is the jaws
-    #    stalling, so close, and on an empty close open, push the aim forward 5 mm and
-    #    close again; when a whole forward sweep at one height finds nothing, lower a
-    #    centimetre and sweep again. An adaptive doubling step was tried and gripped in
-    #    none of three runs, so the fixed step is what ships until the failure is
-    #    understood.
+    #    stalling, so close, and on an empty close open, push the aim forward by
+    #    TOUCH_CREEP_M and close again; when a whole forward sweep at one height finds
+    #    nothing, drop by TOUCH_LOWER_M and sweep again. The steps are fixed because an
+    #    adaptive doubling step was measured to grip in none of three runs while the
+    #    fixed one gripped in four; see the constants.
     gripped = False
     for level in range(TOUCH_LOWER_STEPS + 1):
         for creep in range(TOUCH_CREEP_STEPS + 1):
@@ -676,6 +613,8 @@ def main():
                 'touch %d.%d: gripper at %s stalled=%s'
                 % (level, creep, 'unknown' if position is None
                    else '%.4f' % position, stalled))
+            node.draw_overlay('touch %d.%d: stalled=%s' % (level, creep, stalled),
+                              target=target)
             if stalled:
                 node.get_logger().info('fingers stopped on the cube: gripping')
                 gripped = True
