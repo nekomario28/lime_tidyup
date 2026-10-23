@@ -1020,22 +1020,6 @@ class YoloPoseNode(Node):
         })
         return pose_dict, debug
 
-    def _estimate_pose_3d(
-        self,
-        image_msg,
-        timestamp,
-        keypoints_xy,
-        keypoint_confidences
-    ):
-        """Return an accepted camera-frame pose, or ``None`` as fallback."""
-        pose, _ = self._estimate_pose_3d_with_debug(
-            image_msg,
-            timestamp,
-            keypoints_xy,
-            keypoint_confidences
-        )
-        return pose
-
     def _compute_file_sha256(self, path):
         """Return a stable checkpoint identity without changing inference."""
         digest = hashlib.sha256()

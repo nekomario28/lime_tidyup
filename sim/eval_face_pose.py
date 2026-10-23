@@ -38,54 +38,6 @@ ROBOT_X = 0.02
 BASE_Z = 0.06
 
 
-def pose_from_matrix(matrix):
-    """Quaternion (x, y, z, w) from a rotation matrix."""
-    trace = matrix[0][0] + matrix[1][1] + matrix[2][2]
-    if trace > 0.0:
-        scale = math.sqrt(trace + 1.0) * 2.0
-        return ((matrix[2][1] - matrix[1][2]) / scale,
-                (matrix[0][2] - matrix[2][0]) / scale,
-                (matrix[1][0] - matrix[0][1]) / scale,
-                0.25 * scale)
-    if matrix[0][0] > matrix[1][1] and matrix[0][0] > matrix[2][2]:
-        scale = math.sqrt(1.0 + matrix[0][0] - matrix[1][1] - matrix[2][2]) * 2.0
-        return (0.25 * scale, (matrix[0][1] + matrix[1][0]) / scale,
-                (matrix[0][2] + matrix[2][0]) / scale,
-                (matrix[2][1] - matrix[1][2]) / scale)
-    if matrix[1][1] > matrix[2][2]:
-        scale = math.sqrt(1.0 + matrix[1][1] - matrix[0][0] - matrix[2][2]) * 2.0
-        return ((matrix[0][1] + matrix[1][0]) / scale, 0.25 * scale,
-                (matrix[1][2] + matrix[2][1]) / scale,
-                (matrix[0][2] - matrix[2][0]) / scale)
-    scale = math.sqrt(1.0 + matrix[2][2] - matrix[0][0] - matrix[1][1]) * 2.0
-    return ((matrix[0][2] + matrix[2][0]) / scale,
-            (matrix[1][2] + matrix[2][1]) / scale, 0.25 * scale,
-            (matrix[1][0] - matrix[0][1]) / scale)
-
-
-def quaternion_multiply(first, second):
-    ax, ay, az, aw = first
-    bx, by, bz, bw = second
-    return (aw * bx + ax * bw + ay * bz - az * by,
-            aw * by - ax * bz + ay * bw + az * bx,
-            aw * bz + ax * by - ay * bx + az * bw,
-            aw * bw - ax * bx - ay * by - az * bz)
-
-
-def axis_angle(axis, degrees):
-    half = math.radians(degrees) / 2.0
-    norm = math.sqrt(sum(value * value for value in axis))
-    return tuple(value / norm * math.sin(half) for value in axis) + (math.cos(half),)
-
-
-def angle_between(first, second):
-    first_matrix = quaternion_matrix(first)
-    second_matrix = quaternion_matrix(second)
-    relative = first_matrix.T @ second_matrix
-    trace = float(np.trace(relative))
-    return math.degrees(math.acos(max(-1.0, min(1.0, (trace - 1.0) / 2.0))))
-
-
 class Probe(Node):
     def __init__(self):
         super().__init__('eval_cube_tracking')
