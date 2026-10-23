@@ -221,7 +221,7 @@ def estimate_face_pose(
     lab = face_lab(image_bgr, bbox_xyxy)
     label = classify_lab(lab)
     measured_span = None
-    # quad_from_frontend is not called: the two-face frontend refuses when only one
+    # The two-face frontend is not consulted: it refuses when only one
     # face is visible, which is this mount's normal case, and running it per frame
     # only costs time. The colour's own mask is the tight quad here.
     corners = face_quad_from_color(image_bgr, bbox_xyxy, label) if label else None

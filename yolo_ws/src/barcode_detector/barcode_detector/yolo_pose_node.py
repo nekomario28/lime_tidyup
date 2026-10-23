@@ -279,6 +279,27 @@ class YoloPoseNode(Node):
         """Keep the depth intrinsics (the colour ones may be a different camera)."""
         self.depth_camera_info = msg
 
+    def _remember_pose(self, detection, timestamp):
+        """Keep the last accepted pose, and reuse it when this frame produced none.
+
+        A box with no solve is the common failure -- the depth centre needs a valid
+        depth blob and the face solve needs a complete quad -- and publishing nothing
+        for those frames costs a consumer a whole cycle. The reused pose is tagged, so
+        a consumer can tell a remembered pose from a measured one.
+        """
+        pose = detection.get('pose_3d')
+        if pose is not None:
+            self.pose_memory = (dict(pose), timestamp)
+            return
+        remembered = self._pose_from_memory(timestamp)
+        if remembered is None:
+            return
+        detection['pose_3d'] = remembered
+        detection['pose_evidence']['pose_status'] = 'memory'
+        detection['pose_evidence']['pose_reason'] = (
+            'no solve in this frame; the last accepted pose is reused'
+        )
+
     def _pose_from_memory(self, timestamp):
         """The last accepted pose, if it is fresh enough to stand in."""
         if self.pose_memory is None:
@@ -753,6 +774,8 @@ class YoloPoseNode(Node):
                     reason='' if pose.color_fixed_semantics_resolved
                     else pose.unresolved_reason,
                 )
+        for detection in detections:
+            self._remember_pose(detection, timestamp)
         message = String()
         message.data = json.dumps({
             'timestamp': timestamp,

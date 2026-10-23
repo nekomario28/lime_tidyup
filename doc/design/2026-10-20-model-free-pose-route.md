@@ -85,6 +85,11 @@ it is the better position, and the face solve goes beside it as `pose_3d_face`. 
 records its own `geometry_id`, so a consumer that cares picks a route by geometry rather
 than by which field happens to be filled.
 
+A frame that finds a box but no solve republishes the last accepted pose instead of
+nothing, bounded by the node's memory-age parameter and tagged so a consumer can tell a
+remembered pose from a measured one; past that bound the frame carries no pose at all
+rather than a stale one.
+
 Naming a field in a doc or a consumer is a claim about the node, so it is worth checking
 against the node: a contract described from the intent rather than from the publisher
 reads as implemented and is not.

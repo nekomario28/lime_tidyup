@@ -72,10 +72,6 @@ PITCH_GRID = (150.0, 135.0, 120.0, 105.0, 90.0)
 FIRST_AIM_DZS = (0.0, -0.02, -0.03, -0.05, -0.07)
 #: The pads' shortfall from the aim is measured and removed over this many rounds.
 AIM_ROUNDS = 3
-#: Where the jaws give up on a forward step: half the cube, because beyond that the
-#: pads are behind its far face.
-REACH_MARGIN_M = 0.01
-
 #: The pads' shortfall from the aim is measured, not tuned: every round moves the
 #: command by whatever the pads did not do, which converges because the arm is close
 #: to linear over a centimetre. Measured over the runs, one correction takes the error
