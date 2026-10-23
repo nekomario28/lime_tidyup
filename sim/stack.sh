@@ -9,6 +9,8 @@
 #
 #   gazebo | rsp | tf | moveit | perception | record DIR   long-lived
 #   spawn | controllers | cube M | attach | register         short
+#   mujoco                                                  long-lived (MuJoCo backend)
+#   scene                                                   short (builds the MJCF)
 #   tree NAME                                                runs a tree end to end
 #   prompt                                                   cm1 in the foreground
 set -Eeo pipefail
@@ -60,6 +62,30 @@ case "${stage}" in
                 || { echo "[stage] grasp plugin build failed (see grasp_plugin_build.log)" >&2; exit 1; }
         fi
         echo "[stage] grasp plugin ready: ${workspace}/install/gazebo_grasp_plugin/lib/gazebo_grasp_plugin"
+        ;;
+    scene)
+        # Build the MJCF the MuJoCo backend loads. Same description as the Gazebo path
+        # (xacro use_sim:=false, so no gazebo tags), converted here rather than on the
+        # host so the scene is made by the same MuJoCo that will load it. The meshes come
+        # from the source tree: the install space is a symlink install, so those paths are
+        # dangling links.
+        described=/root/turtlebot3_ws/turtlebot3_lime/turtlebot3_lime_description
+        urdf="${ev}/lime_plain.urdf"
+        xacro "${described}/urdf/turtlebot3_lime.urdf.xacro" use_sim:=false >"${urdf}"
+        python3 "${repo}/sim/mj/build_scene.py" \
+            --urdf "${urdf}" \
+            --meshes "${described}/meshes" \
+            --out "${ev}/scene.mjcf" \
+            ${CCCSIM_MJ_CUBE_X:+--cube-x "${CCCSIM_MJ_CUBE_X}"} \
+            ${CCCSIM_MJ_CUBE_YAW:+--cube-yaw-deg "${CCCSIM_MJ_CUBE_YAW}"} \
+            ${CCCSIM_MJ_CAMERA:+--camera}
+        ;;
+    mujoco)
+        # There is no simulation server to launch: MuJoCo is the physics inside the
+        # ros2_control hardware interface, so this stage is just the control node that
+        # loads it. The scene path travels in the description (rsp publishes it, see
+        # sim/rsp_sim.launch.py), which is why this stage needs no argument.
+        exec ros2 launch "${repo}/sim/mj/mujoco_control.launch.py"
         ;;
     gazebo)
         grasp_libs=""

@@ -3,6 +3,10 @@
 # and the host evidence directory is mounted where the stages write their logs.
 services:
   lime_simul_demo_yuu:
+    # CCCSIM_IMAGE lets a run pick a derived image: the MuJoCo backend needs the
+    # ros2_control MuJoCo packages, which this image does not carry (see
+    # Dockerfile.mujoco). The default is the image the Gazebo backend builds.
+    image: ${CCCSIM_IMAGE:-course_lime-image_yuu}
     command: ["sleep", "infinity"]
     environment:
       ROS_DOMAIN_ID: "20"

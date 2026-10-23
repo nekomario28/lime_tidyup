@@ -1,0 +1,28 @@
+# The MuJoCo backend needs packages the Gazebo image does not carry.
+#
+# Derived from the same image rather than rebuilt, so everything the stack already uses
+# (ROS 2 Humble, MoveIt, the description package, pytwb) stays identical and only the
+# physics backend differs -- which is the point of the exercise: the same command run
+# against a different engine.
+#
+#   ros-humble-mujoco-ros2-control   the ros2_control SystemInterface for MuJoCo
+#   ...-plugins                      BaseVelocityPlugin (/cmd_vel), CameraPlugin (RGB-D)
+#   ...-demos                        example scenes and launch files to read
+#   python3-mujoco (pip)             the scene builder runs where the scene is loaded
+ARG LIME_IMAGE=course_lime-image_yuu:latest
+FROM ${LIME_IMAGE}
+
+RUN apt-get update \
+    && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+        ros-humble-mujoco-ros2-control \
+        ros-humble-mujoco-ros2-control-plugins \
+        ros-humble-mujoco-ros2-control-demos \
+    && rm -rf /var/lib/apt/lists/*
+
+# sim/mj/build_scene.py converts the description with MuJoCo's own URDF importer, so the
+# scene is built by the same library that will load it.
+RUN pip3 install --no-cache-dir mujoco
+
+# a non-interactive default: the MuJoCo backend runs headless (the camera plugin is what
+# feeds perception, not a viewer window)
+ENV MUJOCO_GL=egl

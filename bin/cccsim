@@ -30,6 +30,7 @@ start_moveit=true
 attach_cube=true
 grasp=false
 use_xvfb=false
+backend="${CCCSIM_BACKEND:-gazebo}"
 dry_run=false
 keep_running=false
 started=false
@@ -52,6 +53,9 @@ Usage: ./bin/cccsim [--dry-run] [--keep] [--tree NAME] [--record]
   --grasp          Run sim/grasp_cube.py after the tree: IK to the measured cube,
                    close the fingers, lift. Implies --no-attach.
   --xvfb           Start a virtual display (:99) instead of using DISPLAY.
+  --mujoco         Use MuJoCo for the physics instead of Gazebo. Needs the image built
+                   from Dockerfile.mujoco (CCCSIM_MUJOCO_IMAGE, default lime-mujoco:local);
+                   everything else in this script is unchanged.
   --evidence-dir   Persist logs/debug evidence under PATH on the host.
 USAGE
 }
@@ -87,6 +91,7 @@ cleanup() {
 while (($# > 0)); do
     case "$1" in
         --dry-run) dry_run=true ;;
+        --mujoco) backend=mujoco ;;
         --keep) keep_running=true ;;
         --tree)
             if (($# < 2)); then
@@ -172,7 +177,12 @@ launch_bg() {
     local service="$1" log="$2"
     shift 2
     run "${compose[@]}" exec -T -d -e DISPLAY="${display}" \
-        -e CCCSIM_CUBE_YAW="${CCCSIM_CUBE_YAW:-0.0}" "${service}" \
+        -e CCCSIM_CUBE_YAW="${CCCSIM_CUBE_YAW:-0.0}" \
+        -e CCCSIM_BACKEND="${backend}" -e CCCSIM_MJ_SCENE="${CCCSIM_MJ_SCENE:-}" \
+        -e CCCSIM_MJ_CUBE_X="${CCCSIM_MJ_CUBE_X:-}" \
+        -e CCCSIM_MJ_CUBE_YAW="${CCCSIM_MJ_CUBE_YAW:-}" \
+        -e CCCSIM_MJ_CAMERA="${CCCSIM_MJ_CAMERA:-}" \
+        "${service}" \
         bash -lc "exec $(stage_command "$@") >>/root/cccsim_evidence/${log}.log 2>&1"
 }
 
@@ -180,7 +190,12 @@ run_stage() {
     local service="$1"
     shift
     run "${compose[@]}" exec -T -e DISPLAY="${display}" \
-        -e CCCSIM_CUBE_YAW="${CCCSIM_CUBE_YAW:-0.0}" "${service}" \
+        -e CCCSIM_CUBE_YAW="${CCCSIM_CUBE_YAW:-0.0}" \
+        -e CCCSIM_BACKEND="${backend}" -e CCCSIM_MJ_SCENE="${CCCSIM_MJ_SCENE:-}" \
+        -e CCCSIM_MJ_CUBE_X="${CCCSIM_MJ_CUBE_X:-}" \
+        -e CCCSIM_MJ_CUBE_YAW="${CCCSIM_MJ_CUBE_YAW:-}" \
+        -e CCCSIM_MJ_CAMERA="${CCCSIM_MJ_CAMERA:-}" \
+        "${service}" \
         bash -lc "exec $(stage_command "$@")"
 }
 
@@ -210,18 +225,25 @@ if ${dry_run}; then
     else
         last_plan="${lime_service}: sim/stack.sh prompt  (interactive cm1)"
     fi
+    if [[ "${backend}" == "mujoco" ]]; then
+        physics_plan="  4  ${lime_service}: sim/stack.sh scene                  (builds the MJCF scene)
+  5  ${lime_service}: sim/stack.sh mujoco                 (background, verified)
+  6  ${lime_service}: ros2 launch sim/rsp_sim.launch.py        (mujoco_ros2_control hardware)"
+    else
+        physics_plan="  4  ${lime_service}: gzserver sim/world/cube_world.world      (background, verified)
+  5  ${lime_service}: ros2 launch sim/rsp_sim.launch.py        (use_sim -> gazebo_ros2_control)
+  6  ${lime_service}: sim/robot_spawn.py                       (spawns the robot with a camera)"
+    fi
     cat <<DRY
 [cccsim] would run:
   1  docker compose up -d ${lime_service} ${yolo_service}
   2  colcon build --packages-select barcode_detector            (in ${yolo_service})
   3  ${use_xvfb:+start Xvfb :99 in ${lime_service}; }verify a camera image arrives
-  4  ${lime_service}: gzserver sim/world/cube_world.world      (background, verified)
-  5  ${lime_service}: ros2 launch sim/rsp_sim.launch.py        (use_sim -> gazebo_ros2_control)
-  6  ${lime_service}: sim/robot_spawn.py                       (spawns the robot with a camera)
+${physics_plan}
   7  ${lime_service}: spawner joint_state_broadcaster / arm_controller / gripper_controller
   8  ${lime_service}: static_transform_publisher <computed> base_link sim_camera_color_optical_frame
   9  ${lime_service}: $(${start_moveit} && echo 'move_group.launch.py use_sim:=true' || echo 'move_group skipped')
- 10  ${lime_service}: sim/spawn_cube.py ${cube_distance} 0.0 ${CCCSIM_CUBE_YAW:-0.0}
+ 10  ${lime_service}: $([[ "${backend}" == "mujoco" ]] && echo "cube placed by the scene (CCCSIM_MJ_CUBE_X=${CCCSIM_MJ_CUBE_X:-unset})" || echo "sim/spawn_cube.py ${cube_distance} 0.0 ${CCCSIM_CUBE_YAW:-0.0}")
  11  ${yolo_service}: barcode_detector yolo_pose_node -p bbox_source:=colour_blob
  12  ${record:+${lime_service}: sim/record_frames.py ${frames_dir}}
  13  ${lime_service}: printf 'create cm1\nY\nexit\n' | pytwb
@@ -251,8 +273,26 @@ elif [[ -z "${display}" ]]; then
     echo "[cccsim] DISPLAY is empty; connect with ssh -XY or pass --xvfb" >&2
     exit 1
 fi
+if [[ "${backend}" == "mujoco" ]]; then
+    # the MuJoCo packages live in a derived image; everything else is the same container
+    export CCCSIM_IMAGE="${CCCSIM_MUJOCO_IMAGE:-lime-mujoco:local}"
+    echo "[cccsim] backend: mujoco (image ${CCCSIM_IMAGE})"
+fi
+
 echo "[cccsim] rendering on display ${display}"
 
+if [[ "${backend}" == "mujoco" ]]; then
+    # MuJoCo supplies the physics in-process, so there is no server to launch and no
+    # grasp plugin to load: the question this backend exists to answer is whether the
+    # fingers hold the cube by themselves.
+    echo "[cccsim] MuJoCo scene"
+    run_stage "${lime_service}" scene
+    export CCCSIM_MJ_SCENE=/root/cccsim_evidence/scene.mjcf
+    echo "[cccsim] MuJoCo control node (physics in the ros2_control hardware interface)"
+    launch_bg "${lime_service}" mujoco "mujoco"
+    sleep 6
+    verify_stage "${lime_service}" ros2_control_node mujoco
+else
 if [[ "${CCCSIM_GRASP_PLUGIN:-1}" == "1" ]]; then
     echo "[cccsim] grasp plugin (gazebo_grasp_fix)"
     run_stage "${lime_service}" grasp_plugin
@@ -263,10 +303,13 @@ launch_bg "${lime_service}" gazebo "gazebo"
 sleep 6
 verify_stage "${lime_service}" gzserver gazebo
 
+fi
+
 # The world's observer camera is the real rendering test: gzserver can be alive
 # with rendering disabled, which is silent until a camera sensor asks for one.
-# The robot camera only exists once the robot is spawned (later).
-if ! "${compose[@]}" exec -T "${lime_service}" bash -lc \
+# The robot camera only exists once the robot is spawned (later). It is a Gazebo
+# check, so it is skipped on the MuJoCo backend (no gzserver, no observer camera).
+if [[ "${backend}" == "gazebo" ]] && ! "${compose[@]}" exec -T "${lime_service}" bash -lc \
     'source /opt/ros/humble/setup.bash; timeout 40 ros2 topic echo --once \
         /observer/camera/image_raw' >/dev/null 2>&1; then
     echo "[cccsim] no camera image; rendering is not working:" >&2
@@ -281,8 +324,12 @@ launch_bg "${lime_service}" rsp "rsp"
 sleep 4
 verify_stage "${lime_service}" rsp_sim.launch.py rsp
 
-echo "[cccsim] robot with a camera"
-run_stage "${lime_service}" spawn
+if [[ "${backend}" == "gazebo" ]]; then
+    echo "[cccsim] robot with a camera"
+    run_stage "${lime_service}" spawn
+else
+    echo "[cccsim] robot is in the scene; no spawn needed"
+fi
 
 echo "[cccsim] controllers"
 controllers="$(run_stage "${lime_service}" controllers)"
@@ -309,8 +356,12 @@ launch_bg "${yolo_service}" perception "perception"
 sleep 6
 verify_stage "${yolo_service}" yolo_pose_node perception
 
-echo "[cccsim] cube at ${cube_distance} m"
-run_stage "${lime_service}" cube "${cube_distance}"
+if [[ "${backend}" == "gazebo" ]]; then
+    echo "[cccsim] cube at ${cube_distance} m"
+    run_stage "${lime_service}" cube "${cube_distance}"
+else
+    echo "[cccsim] cube is placed by the scene (CCCSIM_MJ_CUBE_X)"
+fi
 sleep 2
 
 echo "[cccsim] registering cm1"

@@ -72,3 +72,73 @@ cube: [0.24 -0. 0.0284]   max|qvel|=0.493
   成立するか**の独立検証にもなる（AMD なので EGL か OSMesa）
 - Genesis は GPU 前提でこのホスト（AMD/ROCm）ではリスクが高い。まず MuJoCo CPU。
   並列 RL が必要になったらそこで再検討する
+
+
+## 統合（2026-10-23、実測で通した）
+
+`bin/cccsim --mujoco` で、Gazebo の代わりに MuJoCo が物理を担当する。**同じコンテナ・同じ
+コントローラ・同じトピック**で、物理エンジンだけが違う。
+
+```
+./bin/cccsim --mujoco ...        # Dockerfile.mujoco で作った lime-mujoco:local を使う
+CCCSIM_MJ_CUBE_X=0.24            # シーンに立方体を置く（位置をシーン生成時に決める）
+CCCSIM_MJ_CAMERA=1               # ベースカメラをシーンに足す（CamemaPlugin 用）
+```
+
+### 構成
+
+| 要素 | 実装 |
+|---|---|
+| シーン MJCF | `sim/mj/build_scene.py`（URDF→MuJoCo importer→床・アクチュエータ・立方体・カメラ）。`stack.sh scene` がコンテナ内で生成 |
+| ros2_control の URDF | `sim/mj/description_mujoco.py` が Gazebo 版からプラグインとパラメータを差し替え。`rsp_sim.launch.py` が `CCCSIM_BACKEND=mujoco` で適用 |
+| 物理 | `mujoco_ros2_control/MujocoSystemInterface`（Humble バイナリ、apt） |
+| 制御ノード | `sim/mj/mujoco_control.launch.py`（Humble では `~/robot_description` → `/robot_description` の remap が必要） |
+| コントローラ | `sim/mj/controllers_mujoco.yaml` — 稼働中の 3 本（joint_state_broadcaster / arm_controller / gripper_controller）をそのまま |
+| `/cmd_vel` | `BaseVelocityPlugin`（`body: base_footprint`）。車輪にアクチュエータを置かない |
+
+### 実測で必要だったこと（統合側）
+
+1. **アクチュエータ名＝ジョイント名**。`joint1_pos` のように別名を付けると ros2_control の
+   ジョイントと対応せず、`missing state/command interfaces` を並べてハードウェアの初期化が
+   失敗する（シーンのロード自体は成功しているので紛らわしい）。
+2. **Humble では remap が要る**。制御ノードは private な `~/robot_description` を読むため、
+   `ros2 run ... -r ~/robot_description:=...` では効かない（`~/` が展開されない）。
+   launch ファイルで remap を渡すのが確実。
+3. **車輪の velocity コマンドは `position` アクチュエータでは満たせない**（インターフェースの
+   仕様）。だから車輪は ros2_control から外し、`/cmd_vel` は BaseVelocityPlugin が受ける。
+4. **腕のトルク上限**。URDF の `effort="1"` がそのまま MuJoCo の `actuatorfrcrange` になり、
+   手首が指令に 0.3 rad 届かない。サーボ定格の 10 N·m に緩めた（`ARM_TORQUE`）。
+5. `pkill -f ros2_control_node` は**自分自身のシェルにも一致**して殺すので、
+   `pkill -f "[r]os2_control_node"` を使う（これで再起動が無言で失敗していた）。
+
+### 確認できたこと
+
+```
+[rsp_sim] backend: mujoco, scene /root/cccsim_evidence/scene.mjcf
+[MujocoSystemInterface]: Loading 'mujoco_model' from: '/root/cccsim_evidence/scene.mjcf'
+[MujocoSimulation]: Sim ready / Running in HEADLESS mode
+[MujocoSystemInterface]: Registering MuJoCo actuator 'joint1' for joint 'joint1' … joint6
+[MujocoSystemInterface]: Successfully loaded and initialized plugin: base_velocity_plugin
+[resource_manager]: Successful initialization / configure / activate of hardware
+ros2 control list_controllers:
+  joint_state_broadcaster  active
+  arm_controller           active
+  gripper_controller       active
+```
+
+腕を**既存の arm_controller** に指令して MuJoCo の状態が動くことまで確認:
+
+```
+before: [-0.0, 0.0003, 0.0003, 0.0, 0.0003, 0.0]
+after:  [0.0001, 0.4054, -0.4398, 0.3, 0.0007, 0.0001]
+commanded:      [0.0,    0.35,  -0.45,   0.3, 0.0,    0.0]   max error 0.055 rad
+```
+
+### 次（この統合の続き）
+
+1. 立方体をシーンに置き（`CCCSIM_MJ_CUBE_X`）、`FreeJointStatePublisherPlugin` で立方体の
+   姿勢を購読する（＝持ち上げ後に指へ残っているかを測る物差し）
+2. `--tree ccapproach --grasp --record` を MuJoCo でそのまま走らせる（grasp_cube.py は
+   `/compute_ik` と MoveIt を使うので、そのまま動く想定）
+3. `CameraPlugin` を既存トピック名（`/camera/camera/color/image_raw` ほか）に向け、
+   MuJoCo の描画で認識が成立するかを測る

@@ -1,0 +1,23 @@
+# MuJoCo plugins for the grasp stack.
+#
+# `/cmd_vel` is served here rather than by wheel joints: the URDF declares velocity command
+# interfaces for the wheels, and the hardware interface documents that a velocity command
+# needs a velocity/intvelocity actuator (a position actuator cannot serve one), so the
+# wheels would need their own actuators and a diff-drive controller on top. The plugin
+# instead overrides the base's free-joint velocity directly -- the mechanism the
+# package's own mobile-base demo uses -- which is enough for the few centimetres the
+# grasp drives and keeps the base from being pushed around by contacts.
+#
+# `body` must be the free root of the scene: build_scene.py gives base_footprint a
+# floating joint, so that is the body with the free joint the plugin looks for.
+/**:
+  ros__parameters:
+    mujoco_plugins:
+      base_velocity_plugin:
+        type: "mujoco_ros2_control_plugins/BaseVelocityPlugin"
+        body: "base_footprint"
+        cmd_vel_topic: "/cmd_vel"
+        use_stamped_twist: false
+        max_linear_velocity: 1.5
+        max_yaw_rate: 1.5
+        cmd_timeout: 0.5

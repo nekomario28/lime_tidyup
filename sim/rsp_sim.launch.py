@@ -149,6 +149,20 @@ def generate_launch_description():
     else:
         print('[rsp_sim] grasp tuning: off')
 
+    if os.environ.get('CCCSIM_BACKEND', 'gazebo') == 'mujoco':
+        sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), 'mj'))
+        import description_mujoco
+        scene = os.environ.get('CCCSIM_MJ_SCENE', '')
+        if not scene:
+            raise SystemExit('CCCSIM_BACKEND=mujoco needs CCCSIM_MJ_SCENE (build it with '
+                             'the scene stage)')
+        robot_description = description_mujoco.to_mujoco(
+            robot_description, scene,
+            headless=os.environ.get('CCCSIM_MJ_HEADLESS', '1') != '0')
+        print('[rsp_sim] backend: mujoco, scene %s' % scene)
+        print('[rsp_sim] the gazebo tags left in the description (friction, sensors) are '
+              'inert here: MuJoCo reads the scene, not the URDF')
+
     ld.add_action(Node(
         package='robot_state_publisher',
         executable='robot_state_publisher',
