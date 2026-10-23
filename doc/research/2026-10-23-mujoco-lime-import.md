@@ -82,7 +82,7 @@ cube: [0.24 -0. 0.0284]   max|qvel|=0.493
 ```
 ./bin/cccsim --mujoco ...        # Dockerfile.mujoco で作った lime-mujoco:local を使う
 CCCSIM_MJ_CUBE_X=0.24            # シーンに立方体を置く（位置をシーン生成時に決める）
-CCCSIM_MJ_CAMERA=1               # ベースカメラをシーンに足す（CamemaPlugin 用）
+CCCSIM_MJ_CAMERA=1               # ベースカメラをシーンに足す（CameraPlugin 用）
 ```
 
 ### 構成
