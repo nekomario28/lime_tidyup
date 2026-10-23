@@ -39,6 +39,10 @@ from std_msgs.msg import String
 from tf2_ros import Buffer, TransformListener
 from trajectory_msgs.msg import JointTrajectory, JointTrajectoryPoint
 
+# Sibling module: resolved from this script's own directory, which python puts on the
+# path when the file is run as a script.
+from pose_math import transform_point  # noqa: E402
+
 ARM_JOINTS = ['joint1', 'joint2', 'joint3', 'joint4', 'joint5', 'joint6']
 EE_TO_PADS_M = 0.0443      # end_effector_link sits this far past the finger pads
 #: Where the pads actually contact, measured from the finger meshes
@@ -197,14 +201,8 @@ class Grasper(Node):
             return None
         q = transform.transform.rotation
         t = transform.transform.translation
-        x, y, z = point_base
-        ux, uy, uz, uw = q.x, q.y, q.z, q.w
-        cross = (uy * z - uz * y, uz * x - ux * z, ux * y - uy * x)
-        dot = ux * x + uy * y + uz * z
-        uu = ux * ux + uy * uy + uz * uz
-        rotated = [2.0 * dot * u + (uw * uw - uu) * p + 2.0 * uw * c
-                   for u, p, c in zip((ux, uy, uz), (x, y, z), cross)]
-        camera_point = [rotated[i] + (t.x, t.y, t.z)[i] for i in range(3)]
+        camera_point = transform_point((q.x, q.y, q.z, q.w), (t.x, t.y, t.z),
+                                       point_base)
         if camera_point[2] <= 0.01:
             return None
         k = info.k
@@ -268,16 +266,11 @@ class Grasper(Node):
                 time.sleep(0.2)
         else:
             raise SystemExit('no transform base_link <- %s' % frame)
-        x, y, z = pose['position_m']
         q = transform.transform.rotation
-        ux, uy, uz, uw = q.x, q.y, q.z, q.w
-        cross = (uy * z - uz * y, uz * x - ux * z, ux * y - uy * x)
-        dot = ux * x + uy * y + uz * z
-        uu = ux * ux + uy * uy + uz * uz
-        rotated = [2.0 * dot * u + (uw * uw - uu) * p + 2.0 * uw * c
-                   for u, p, c in zip((ux, uy, uz), (x, y, z), cross)]
         t = transform.transform.translation
-        return [rotated[0] + t.x, rotated[1] + t.y, rotated[2] + t.z]
+        point = transform_point((q.x, q.y, q.z, q.w), (t.x, t.y, t.z),
+                                pose['position_m'])
+        return list(point)
 
     # -- motion -----------------------------------------------------------
     def solve_ik(self, position, quat_xyzw, avoid_collisions=False, timeout=5.0):
@@ -484,8 +477,7 @@ def aim_at_pads(node, point):
 
 def hold_aim(node, aim, pitch_deg):
     """Put the arm back on the corrected aim; None when IK refuses."""
-    target = grasp_pose(aim, pitch_deg, 0.0)
-    joints = node.solve_ik(target, pitch_quat(pitch_deg))
+    joints = solve_aim(node, aim, pitch_deg)
     if joints is None:
         return None
     node.send_arm(joints, seconds=2.5)

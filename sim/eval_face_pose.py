@@ -12,167 +12,64 @@ Run inside the lime container with the stack up:
 """
 from __future__ import annotations
 
-import json
 import math
-import subprocess
+import os
 import sys
-import threading
-import time
-
-import numpy as np
-import rclpy
-from cv_bridge import CvBridge
-from rclpy.node import Node
-from sensor_msgs.msg import CameraInfo, Image
-from std_msgs.msg import String
-from tf2_ros import Buffer, TransformListener
 
 sys.path.insert(0, '/root/repo/yolo_ws/src')
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from barcode_detector.cube_single_view_pose import (  # noqa: E402
     FacePoseError, estimate_face_pose)
-from barcode_detector.cube_pose_tracking import quaternion_matrix  # noqa: E402
 
-SIDE = 0.057
-ROBOT_X = 0.02
-BASE_Z = 0.06
+import eval_common  # noqa: E402
 
-
-class Probe(Node):
-    def __init__(self):
-        super().__init__('eval_cube_tracking')
-        self.bridge = CvBridge()
-        self.image = None
-        self.info = None
-        self.result = None
-        self.create_subscription(Image, '/camera/camera/color/image_raw',
-                                 self.on_image, 1)
-        self.create_subscription(CameraInfo, '/camera/camera/color/camera_info',
-                                 self.on_info, 1)
-        self.tf_buffer = Buffer()
-        self.tf_listener = TransformListener(self.tf_buffer, self)
-
-    def on_image(self, msg):
-        self.image = msg
-
-    def on_info(self, msg):
-        self.info = msg
-
-    def on_result(self, msg):
-        self.result = msg.data
-
-    def wait_result(self, timeout=15.0, settle=2.5):
-        self.result = None
-        start = time.time()
-        while time.time() - start < settle:
-            self.result = None
-            time.sleep(0.2)
-        deadline = time.time() + timeout
-        while time.time() < deadline:
-            if self.result:
-                return json.loads(self.result)
-            time.sleep(0.1)
-        return None
-
-    def fresh_frame(self, settle=2.5, timeout=15.0):
-        self.image = None
-        start = time.time()
-        while time.time() - start < settle:
-            self.image = None
-            time.sleep(0.2)
-        deadline = time.time() + timeout
-        while time.time() < deadline:
-            if self.image is not None and self.info is not None:
-                return (self.bridge.imgmsg_to_cv2(self.image, 'bgr8'),
-                        self.image.header.frame_id, list(self.info.k))
-            time.sleep(0.1)
-        return None
-
-    def camera_pose(self, frame, timeout=10.0):
-        """Pose of base_link in the camera frame: (position, quaternion)."""
-        deadline = time.time() + timeout
-        while time.time() < deadline:
-            try:
-                transform = self.tf_buffer.lookup_transform(
-                    frame, 'base_link', rclpy.time.Time())
-                break
-            except Exception:  # noqa: BLE001
-                time.sleep(0.2)
-        else:
-            return None
-        t = transform.transform.translation
-        q = transform.transform.rotation
-        return [t.x, t.y, t.z], (q.x, q.y, q.z, q.w)
+MAX_REPROJECTION_PX = 6.0
 
 
-def spawn_cube(distance):
-    subprocess.run(['ros2', 'service', 'call', '/delete_entity',
-                    'gazebo_msgs/srv/DeleteEntity', '{name: rubik_cube}'],
-                   capture_output=True, text=True, timeout=20)
-    time.sleep(0.5)
-    subprocess.run(['python3', '/root/repo/sim/spawn_cube.py', str(distance),
-                    '0.0'], capture_output=True, text=True, timeout=40)
-    time.sleep(2.0)
+def measure(distance, node):
+    """Solve the visible face and compare it with where the cube was spawned."""
+    frame = node.wait_image()
+    result = node.wait_result()
+    if frame is None or result is None:
+        print('d=%.2f  no frame or no detection' % distance)
+        return {'distance': distance, 'status': 'no frame or no detection'}
+    image, frame_id, key = frame
+    camera = node.camera_transform(frame_id)
+    if camera is None:
+        print('d=%.2f  no transform' % distance)
+        return {'distance': distance, 'status': 'no transform'}
+    truth = eval_common.cube_in_frame(distance, camera)
 
+    box = None
+    best = 0.0
+    for detection in result.get('detections', []):
+        if detection.get('box_xyxy') and detection.get('confidence', 0.0) > best:
+            best = detection['confidence']
+            box = detection['box_xyxy']
+    if box is None:
+        print('d=%.2f  no box' % distance)
+        return {'distance': distance, 'status': 'no box'}
 
-def main():
-    distances = [float(value) for value in sys.argv[1:]] or [0.4, 0.6, 0.8, 1.0]
-    rclpy.init()
-    node = Probe()
-    node.create_subscription(String, '/cube_pose_result', node.on_result, 1)
-    threading.Thread(target=rclpy.spin, args=(node,), daemon=True).start()
-    time.sleep(1.5)
+    try:
+        pose, evidence = estimate_face_pose(
+            image, key, box, side_length_m=eval_common.CUBE_SIDE_M,
+            maximum_reprojection_error_px=MAX_REPROJECTION_PX)
+    except FacePoseError as error:
+        print('d=%.2f  refused: %s' % (distance, error))
+        return {'distance': distance, 'status': 'refused: %s' % error}
 
-    rows = []
-    for distance in distances:
-        spawn_cube(distance)
-        frame = node.fresh_frame()
-        result = node.wait_result()
-        if frame is None or result is None:
-            print('d=%.2f  no frame or no detection' % distance)
-            continue
-        image, frame_id, key = frame
-        camera = node.camera_pose(frame_id)
-        if camera is None:
-            print('d=%.2f  no transform' % distance)
-            continue
-        camera_position, camera_quaternion = camera
-        truth_base = np.asarray([distance - ROBOT_X, 0.0, SIDE / 2.0 - BASE_Z])
-        rotation = quaternion_matrix(camera_quaternion)
-        truth_camera = rotation @ truth_base + np.asarray(camera_position)
-
-        box = None
-        best = 0.0
-        for detection in result.get('detections', []):
-            if detection.get('confidence', 0.0) > best and detection.get('box_xyxy'):
-                best = detection['confidence']
-                box = detection['box_xyxy']
-        if box is None:
-            print('d=%.2f  no box' % distance)
-            continue
-        try:
-            pose, evidence = estimate_face_pose(image, key, box, side_length_m=SIDE,
-                                                maximum_reprojection_error_px=6.0)
-        except FacePoseError as error:
-            rows.append({'distance': distance, 'status': 'refused: %s' % error})
-            print('d=%.2f  refused: %s' % (distance, error))
-            continue
-        error_m = math.dist(pose['position_m'], truth_camera)
-        row = {'distance': distance, 'face': pose['visible_face'],
-               'color_label': evidence['face_color_label'],
-               'color_matched': evidence['color_matched'],
-               'position_error_m': round(error_m, 4),
-               'reprojection_px': round(pose['reprojection_error_px'], 2)}
-        rows.append(row)
-        print('d=%.2f  face %-3s label %-6s matched %-5s pos err %.4f m  reproj %.2f px'
-              % (distance, pose['visible_face'], evidence['face_color_label'],
-                 evidence['color_matched'], error_m,
-                 pose['reprojection_error_px']))
-
-    print('\nsummary')
-    for row in rows:
-        print(json.dumps(row, sort_keys=True))
+    error_m = math.dist(pose['position_m'], truth)
+    print('d=%.2f  face %-3s label %-6s matched %-5s pos err %.4f m  reproj %.2f px'
+          % (distance, pose['visible_face'], evidence['face_color_label'],
+             evidence['color_matched'], error_m, pose['reprojection_error_px']))
+    return {'distance': distance,
+            'face': pose['visible_face'],
+            'color_label': evidence['face_color_label'],
+            'color_matched': evidence['color_matched'],
+            'position_error_m': round(error_m, 4),
+            'reprojection_px': round(pose['reprojection_error_px'], 2)}
 
 
 if __name__ == '__main__':
-    main()
+    eval_common.run_over_distances(measure)

@@ -12,25 +12,24 @@ pose. The robot's model frame sits about base_link (z offset 0.06) and that
 offset is subtracted, which is why the absolute numbers are quoted to the
 centimetre while the *differences* between configurations are exact.
 
+Every route in a message is measured and labelled by its own geometry id, so a
+message carrying the depth centre as the primary pose and the face solve beside
+it reports both errors rather than one of them twice.
+
 Usage (inside the lime container, with the stack up):
     python3 sim/eval_cube_recognition.py [--distances 0.4 0.6 0.8 1.0]
 """
 from __future__ import annotations
 
 import argparse
-import json
 import math
 import os
 import subprocess
-import threading
-import time
+import sys
 
-import rclpy
-from rclpy.node import Node
-from std_msgs.msg import String
-from tf2_ros import Buffer, TransformListener
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-BASE_Z_OFFSET = 0.06
+import eval_common  # noqa: E402
 
 
 def model_pose(name, attempts=3):
@@ -38,98 +37,98 @@ def model_pose(name, attempts=3):
     output = ''
     for _ in range(attempts):
         try:
-            output = subprocess.run(
-                ['gz', 'model', '--model-name', name, '--info'],
-                capture_output=True, text=True, timeout=25).stdout
+            output = subprocess.run(['gz', 'model', '--model-name', name, '--info'],
+                                    capture_output=True, text=True, timeout=25).stdout
         except Exception:  # noqa: BLE001
-            output = ''
+            continue
         if 'position {' in output:
             break
-        time.sleep(1.0)
-    if not output:
-        return None
     values = {}
     lines = output.splitlines()
     for index, line in enumerate(lines):
-        text = line.strip()
-        if text in ('position {', 'orientation {'):
-            block = lines[index + 1:index + 4]
-            for entry in block:
-                key, _, raw = entry.strip().partition(':')
-                if key in ('x', 'y', 'z', 'w'):
+        if line.strip() == 'position {':
+            for offset in (1, 2, 3):
+                if index + offset < len(lines) and ':' in lines[index + offset]:
+                    key, _, value = lines[index + offset].partition(':')
                     try:
-                        values[key] = float(raw)
+                        values[key.strip()] = float(value)
                     except ValueError:
-                        pass
-            if len(values) >= 3:
-                break
-    if len(values) < 3:
-        return None
-    return values
+                        return None
+    return values or None
 
 
-def rotate(quat, vector):
-    x, y, z, w = quat
-    ux, uy, uz = vector
-    cross = (y * uz - z * uy, z * ux - x * uz, x * uy - y * ux)
-    dot = x * ux + y * uy + z * uz
-    uu = x * x + y * y + z * z
-    return tuple(2.0 * dot * u + (w * w - uu) * p + 2.0 * w * c
-                 for u, p, c in zip((x, y, z), (ux, uy, uz), cross))
+def measure(distance, node, robot):
+    """Read the published routes and weigh each against where the cube was spawned."""
+    result = node.wait_result()
+    if result is None:
+        print('d=%.2f  no result' % distance)
+        return {'distance': distance, 'status': 'no result'}
+    row = {'distance': distance,
+           'detections': len(result.get('detections', []))}
 
+    # The robot settles where physics puts it, which is not exactly the spawn pose, so
+    # the truth uses the queried pose when Gazebo answered at all.
+    truth = eval_common.cube_in_base_link(distance, robot)
 
-class Probe(Node):
-    def __init__(self):
-        super().__init__('eval_cube_recognition')
-        self.latest = None
-        self.create_subscription(String, '/cube_pose_result', self.on_result, 1)
-        self.tf_buffer = Buffer()
-        self.tf_listener = TransformListener(self.tf_buffer, self)
+    # Every route the message carries, keyed by its own geometry id: pose_3d is
+    # whichever one the node published as primary, pose_3d_face the one beside it.
+    # Selecting by field name instead reports one route's error under another's label.
+    routes = {}
+    for detection in result.get('detections', []):
+        for candidate in (detection.get('pose_3d'), detection.get('pose_3d_face')):
+            geometry = (candidate or {}).get('geometry_id')
+            if geometry and len(candidate.get('position_m') or []) == 3:
+                routes.setdefault(geometry,
+                                  (candidate, detection.get('confidence')))
 
-    def on_result(self, msg):
-        self.latest = msg.data
+    route_errors = {}
+    for geometry, (candidate, confidence) in routes.items():
+        position = node.point_in_base_link(candidate['position_m'],
+                                           candidate['frame_id'])
+        if position is not None:
+            route_errors[geometry] = (candidate, position,
+                                      math.dist(position, truth))
+    if not route_errors:
+        row.update(status='no pose with a transform')
+        print('d=%.2f  %d detections, no pose with a transform'
+              % (distance, row['detections']))
+        return row
 
-    def wait_result(self, timeout=15.0, settle=2.5):
-        """Return a detection published after `settle` seconds.
+    # The primary route is the one the node filled pose_3d with, which is the detection
+    # whose primary pose this eval exists to weigh; the rest are companions.
+    primary_geometry = next(
+        ((geometry, detection.get('confidence'))
+         for detection in result.get('detections', [])
+         for geometry in [(detection.get('pose_3d') or {}).get('geometry_id')]
+         if geometry in route_errors), None)
+    if primary_geometry is None:
+        primary_geometry = (sorted(route_errors)[0], None)
+    geometry, confidence = primary_geometry
+    candidate, position, error = route_errors[geometry]
 
-        Taking the next message straight after a spawn picks up a frame from
-        before it: measured, that moved the answer by 5 cm between restarts.
-        """
-        self.latest = None
-        start = time.time()
-        while time.time() - start < settle:
-            self.latest = None
-            time.sleep(0.2)
-        deadline = time.time() + timeout
-        while time.time() < deadline:
-            if self.latest:
-                return json.loads(self.latest)
-            time.sleep(0.1)
-        return None
-
-    def to_base_link(self, position, frame):
-        try:
-            transform = self.tf_buffer.lookup_transform(
-                'base_link', frame, rclpy.time.Time())
-        except Exception:  # noqa: BLE001
-            return None
-        q = transform.transform.rotation
-        t = transform.transform.translation
-        rotated = rotate((q.x, q.y, q.z, q.w), position)
-        return [rotated[i] + (t.x, t.y, t.z)[i] for i in range(3)]
-
-
-def spawn_cube(distance):
-    subprocess.run(
-        ['ros2', 'service', 'call', '/delete_entity',
-         'gazebo_msgs/srv/DeleteEntity', '{name: rubik_cube}'],
-        capture_output=True, text=True, timeout=20)
-    time.sleep(0.5)
-    subprocess.run(
-        ['python3', os.path.join(os.path.dirname(os.path.abspath(__file__)),
-                                 'spawn_cube.py'), str(distance), '0.0'],
-        capture_output=True, text=True, timeout=40)
-    time.sleep(2.0)
+    face = next(((geometry, values) for geometry, values in route_errors.items()
+                 if 'face' in geometry), None)
+    if face is not None:
+        row.update(face_geometry=face[0],
+                   face=[round(v, 4) for v in face[1][1]],
+                   face_error_m=round(face[1][2], 4),
+                   face_visible=face[1][0].get('visible_face'),
+                   face_color=face[1][0].get('face_color_label'))
+    row.update(status='ok',
+               confidence=confidence,
+               geometry=geometry,
+               measured=[round(v, 4) for v in position],
+               truth=[round(v, 4) for v in truth],
+               error_m=round(error, 4),
+               route_error_m={geometry: round(values[2], 4)
+                              for geometry, values in route_errors.items()})
+    print('d=%.2f  %s   face %-3s/%s'
+          % (distance,
+             '  '.join('%s err %.4f m' % (geometry, values[2])
+                       for geometry, values in sorted(route_errors.items())),
+             (row.get('face_visible') or '-'),
+             (row.get('face_color') or '-')))
+    return row
 
 
 def main():
@@ -138,107 +137,19 @@ def main():
                         default=[0.4, 0.6, 0.8, 1.0])
     arguments = parser.parse_args()
 
-    rclpy.init()
-    node = Probe()
-    threading.Thread(target=rclpy.spin, args=(node,), daemon=True).start()
-    time.sleep(1.5)
-
-    # The robot settles where physics puts it, which is not exactly the spawn pose:
-    # assuming 0.02 m here is a candidate explanation for sweeps that disagree with
-    # each other by about 8 cm. Ask Gazebo (retried) and fall back to the nominal
-    # pose only when it will not answer.
     robot = model_pose('turtlebot3_lime_system')
     if robot is None:
-        print('robot pose unavailable; assuming base_link at x=0.02')
-        robot = {'x': 0.02, 'y': 0.0, 'z': 0.0}
+        print('robot pose unavailable; assuming base_link at x=%.2f'
+              % eval_common.ROBOT_X_M)
     else:
         print('robot base at x=%.4f y=%.4f z=%.4f'
               % (robot.get('x', 0.0), robot.get('y', 0.0), robot.get('z', 0.0)))
-    rows = []
-    for distance in arguments.distances:
-        spawn_cube(distance)
-        result = node.wait_result()
-        if result is None or robot is None:
-            print('d=%.2f  no result/ground truth (result=%s robot=%s)'
-                  % (distance, result is not None, robot is not None))
-            continue
-
-        best = None
-        for detection in result.get('detections', []):
-            pose = detection.get('pose_3d') or {}
-            if len(pose.get('position_m') or []) == 3:
-                if best is None or detection['confidence'] > best[0]:
-                    best = (detection['confidence'], pose)
-        row = {'distance': distance,
-               'detections': len(result.get('detections', []))}
-        if best is None:
-            row.update(status='no pose_3d')
-            rows.append(row)
-            print('d=%.2f  %d detections, no pose_3d' % (distance, row['detections']))
-            continue
-
-        confidence, pose = best
-        measured = node.to_base_link(pose['position_m'], pose['frame_id'])
-        if measured is None:
-            row.update(status='no transform %s' % pose['frame_id'])
-            rows.append(row)
-            print('d=%.2f  no transform for %s' % (distance, pose['frame_id']))
-            continue
-
-        # The cube is spawned at a known distance and does not move, so the spawn
-        # value is the better ground truth: gz model is slow and occasionally
-        # times out while the sim is stepping, and the cube's own query is the one
-        # that matters least.
-        truth_world = [distance, 0.0, 0.5 * 0.057]
-        robot_world = [robot['x'], robot['y'], robot['z'] + BASE_Z_OFFSET]
-        truth = [truth_world[i] - robot_world[i] for i in range(3)]
-        error = math.dist(measured, truth)
-        # Every route in the message is measured against the same truth, keyed by its
-        # own geometry id: pose_3d carries whichever route the node chose to publish as
-        # primary, pose_3d_face the single-view solve beside it. Selecting by field name
-        # would report one route's error under the other's label -- which is what an
-        # earlier version did when it read pose_3d_face into a variable called face_pose
-        # after the node had stopped filling it.
-        routes = {}
-        for detection in result.get('detections', []):
-            for candidate in (detection.get('pose_3d'),
-                              detection.get('pose_3d_face')):
-                geometry = (candidate or {}).get('geometry_id')
-                if geometry and len(candidate.get('position_m') or []) == 3:
-                    routes.setdefault(geometry, candidate)
-        route_errors = {}
-        for geometry, candidate in routes.items():
-            position = node.to_base_link(candidate['position_m'],
-                                         candidate['frame_id'])
-            if position is not None:
-                route_errors[geometry] = (candidate, position,
-                                          math.dist(position, truth))
-        face_only = next(((g, c, p, e) for g, (c, p, e) in route_errors.items()
-                          if 'face' in g), None)
-        if face_only is not None:
-            row.update(face_geometry=face_only[0],
-                       face=[round(v, 4) for v in face_only[2]],
-                       face_error_m=round(face_only[3], 4),
-                       face_visible=face_only[1].get('visible_face'),
-                       face_color=face_only[1].get('face_color_label'))
-        row.update(status='ok', confidence=confidence,
-                   geometry=pose.get('geometry_id'),
-                   measured=[round(v, 4) for v in measured],
-                   truth=[round(v, 4) for v in truth],
-                   error_m=round(error, 4),
-                   route_error_m={g: round(e, 4)
-                                  for g, (_, _, e) in route_errors.items()})
-        rows.append(row)
-        print('d=%.2f  %s   face %-3s/%s'
-              % (distance,
-                 '  '.join('%s err %.4f m' % (geometry, values[2])
-                           for geometry, values in sorted(route_errors.items())),
-                 (row.get('face_visible') or '-'),
-                 (row.get('face_color') or '-')))
-
-    print('\nsummary')
-    for row in rows:
-        print(json.dumps(row, sort_keys=True))
+    nominal = (eval_common.ROBOT_X_M, 0.0, eval_common.BASE_Z_M)
+    robot_base = (robot['x'], robot['y'],
+                  robot['z'] + eval_common.BASE_Z_M) if robot else nominal
+    eval_common.run_over_distances(
+        lambda distance, node: measure(distance, node, robot_base),
+        distances=arguments.distances)
 
 
 if __name__ == '__main__':
