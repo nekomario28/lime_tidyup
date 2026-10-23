@@ -221,7 +221,7 @@ if ${dry_run}; then
   7  ${lime_service}: spawner joint_state_broadcaster / arm_controller / gripper_controller
   8  ${lime_service}: static_transform_publisher <computed> base_link sim_camera_color_optical_frame
   9  ${lime_service}: $(${start_moveit} && echo 'move_group.launch.py use_sim:=true' || echo 'move_group skipped')
- 10  ${lime_service}: sim/spawn_cube.py ${cube_distance} 0.0
+ 10  ${lime_service}: sim/spawn_cube.py ${cube_distance} 0.0 ${CCCSIM_CUBE_YAW:-0.0}
  11  ${yolo_service}: barcode_detector yolo_pose_node -p bbox_source:=colour_blob
  12  ${record:+${lime_service}: sim/record_frames.py ${frames_dir}}
  13  ${lime_service}: printf 'create cm1\nY\nexit\n' | pytwb

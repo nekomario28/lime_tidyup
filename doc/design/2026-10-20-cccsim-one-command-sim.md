@@ -10,7 +10,12 @@ With `--tree NAME` it runs a tree, attaches the cube and lifts it, and with
 
 Flags follow `bin/ccc`: `--dry-run`, `--keep`, `--evidence-dir PATH`, `-h`. The
 sim-specific ones are `--tree NAME`, `--record`, `--cube-distance M`,
-`--no-moveit` and `--xvfb` (headless host).
+`--no-moveit` and `--xvfb` (headless host). `--grasp` runs the grasp after the
+tree; it implies `--no-attach`, because holding the cube by contact is what the
+grasp is being tested for. `--record` captures four views: the camera, the third
+person observer, the perception overlay, and the grasp overlay (the recognised
+box and the aim point) — see [the grasp survey](../research/2026-10-20-grasp-oss-survey.md)
+for what the last two are made of.
 
 At the prompt, use `ccprod2` or `ccprod`: they approach by contact and close the
 fingers, so a bounding box is enough. `ccsim` and `ccgrasp` ask for a `pose_3d`,
@@ -50,9 +55,12 @@ mid-mission.
 
 ## Limits worth knowing
 
-- The grasp uses `LinkAttacher`, not friction: `gazebo_grasp_fix` is not built,
-  so the cube is attached to `gripper_left_link` once the tree reports contact.
-- The tree drives fixed distances rather than closing a visual servo: the depth
-  image near the robot is unusable (two publishers, mostly invalid rows).
+- The grasp holds by contact, not by attachment: `gazebo_grasp_fix` is built and
+  loaded, so the cube is held because the fingers are touching it. `--grasp`
+  therefore runs with the cube unattached — that is the test.
 - The first-person view carries the gripper into the frame during the final
   approach, so the cube is seen through the fingers at the moment of grasping.
+  That is not only cosmetic: the arm occludes the face the pose is measured from,
+  which is why the last centimetres are searched by touch rather than aimed.
+- The tree drives fixed distances to approach; closing the range is the grasp
+  script's job, because it is the first thing that has a measured cube pose.

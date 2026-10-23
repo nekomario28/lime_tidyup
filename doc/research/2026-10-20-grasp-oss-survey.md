@@ -1,228 +1,89 @@
 # 把持を成立させる OSS の調査（2026-10-20）
 
-このラウンドで塞いだ欠陥（カメラのマウント、重複パブリッシャ、depth の近距離、
-MoveIt の計画予算、actor スレッド内 IK）のあとに残った問題は 2 つだけだった。
+対象: Gazebo 上の 57 mm 立方体を、この 6 軸アームで床から掴み上げるまで。
 
-1. 腕が測定した把持姿勢へ到達しない
-2. 指が立方体を挟んでも保持できない（摩擦で持てない）
+## 結論
 
-以下は、その 2 つを既存 OSS で解けるかの調査と、このイメージ上での検証結果。
+- 把持は **摩擦ではなく「接触したら保持」** で成立させる。`gazebo_grasp_fix` をビルドして
+  Gazebo にロードし、指が立方体に触れたことを検出させる。
+- ただし **アームの可動域が先に問題になる**（下記）。グリッパのチューニングでは解決しない。
+- 近距離では **カメラは基準にならない**（腕が視界を塞ぐ）。最後の数 cm は触覚で探す。
 
-## 結論（先に）
+## 採用した OSS と適用
 
-- **1 は新しい OSS を入れなくても解ける。** 既に依存に含まれる `pymoveit2` が
-  `allowed_planning_time` の setter を持っている（`moveit2.py` 2234 行）。
-  既定 0.5 秒のまま呼んでいたのが失敗の原因で、5 秒にすれば OMPL が goal 領域を
-  サンプルできる。
-- **2 は `gazebo_grasp_fix` で解ける。** `kongoncharuk/gazebo-pkgs` の `humble`
-  ブランチが ROS 2 (ament_cmake) 版で、このイメージでビルドとロードの両方に成功した。
-  リポジトリの URDF には既にこのプラグインの設定
-  （`link7` / 左右の `gripper_*_link`）が書かれている。
-- 予備として `ros-humble-pick-ik` が apt にある。KDL が床付近で `-31`
-  (NO_IK_SOLUTION) を返す姿勢の保険になる。
+### `gazebo_grasp_fix`（`kongoncharuk/gazebo-pkgs` @ humble）
 
-## 検証した候補
+- 効能: 指の接触数から把持を判定し、保持する。摩擦係数の調整に依存しない。
+- 適用: `dependencies.repos` に追加し、`GAZEBO_PLUGIN_PATH` / `LD_LIBRARY_PATH` を
+  gazebo ステージで設定。実ログで `grasp plugin is loaded`、
+  `Grasp Held … grip count 1..3`、`object that is already attached` を確認済み。
+- 帰結: **`LinkAttacher` による attach は使わない**。`--grasp` は `--no-attach` を含み、
+  指が本当に保持しているかを接触で示す。
 
-| 候補 | 何を解くか | 検証結果 |
-| --- | --- | --- |
-| `kongoncharuk/gazebo-pkgs` @ `humble` → `libgazebo_grasp_fix.so` | 接触ベースの把持。指の接触を検出し、`disable_collisions_on_attach` で仮想関節にして保持する。`LinkAttacher`（今のテレポート接続）の置き換え | **この環境でビルド成功（2 パッケージ 19.7 s）**、かつ gzserver への**ロード成功**（下記ログ）。依存は apt で取得可（`ros-humble-gazebo-dev` / `ros-humble-gazebo-ros` / `libprotobuf-dev`） |
-| `pymoveit2` の `allowed_planning_time` | pose goal の計画予算が 0.5 秒固定 → OMPL が「goal 領域をサンプルできない」で失敗 | 既存コピーに setter あり（2057 / 2234 行）。**1 行で変更可能** |
-| `ros-humble-pick-ik` 1.1.2 | KDL の IK 失敗（床付近）を大域最適化 IK で解く。MoveIt 2 の IK プラグインとして差し替え | apt に candidate あり（未導入）。`kinematics.yaml` の `kinematics_solver` を変えるだけ |
-| `ros-humble-gripper-controllers` 2.54.1 | グリッパ制御 | apt に candidate あり（導入済み） |
-| `trac_ik` | 別系統の IK | apt には無い（bloom release のみ）。`pick_ik` で足りるので優先度低 |
-| `IFRA_LinkAttacher` | 現在の接続方式 | 継続利用可（把持失敗時の保険） |
+### 検証した候補（却下）
 
-### `gazebo_grasp_fix` のロード確認（実ログ）
+- 学習済み keypoint モデル: シミュレーションの立方体で頂点予測がどの姿勢とも一致しない
+  （[checkpoint check](2026-10-19-eight-keypoint-checkpoint-check.md)）。認識側は
+  幾何＋色の経路に置き換えた（[model-free route](../design/2026-10-20-model-free-pose-route.md)）。
+- FoundationPose / SAM-6D / GDR-Net: GPU 前提で、この用途（単一立方体・単視点）には過大。
+
+## 実測で分かった可動域と物理の制約
+
+- **掌を下にした把持は成立しない**。`roll 180` は到達距離内に IK 解が 1 つも無く、
+  水平前方（`pitch 90`）も同様。解けるのは **`pitch 105–150`** のみ。
+- 立方体が 0.29 m 先では、その `pitch 150` でもパッドを立方体の高さまで下ろせない。
+  **0.24 m まで寄せて初めて解ける**。→ 近づいてから姿勢を作る。
+- 検討した代替: 前面把持（**採用**、上記の `pitch 105–150`）、台に載せる（**却下**、シナリオが
+  「床の立方体」でなくなる）、接近だけ最適化して保持はプラグイン任せ（採用した `grasp_fix` が
+  まさにこれ）。
+- 指の関節は既定（`effort=1 N`、`friction=1.0`、`damping=0.7`）では閉じきらない。
+  `sim/rsp_sim.launch.py` の tuning で `10 N`（後に `6.0`）、`0.01`、`0.02`、
+  パッド `mu=2.0` に変更済み。
+- depth は plugin 側の `near_clip` に関わらず 0.4 m にクランプされる。
+  `<min_depth>0.05</min_depth>` を入れて 0.26 m から有効になった。
+- 同じ画像を 2 つの publisher が出していた期間があり、box が 0.1 m ずれ、depth が
+  0.51 m / 0.83 m と食い違っていた。上流の camera を description から落として 1 本にした。
+
+## 把持を成立させている原理
+
+いずれも実測にもとづく。**数値を手で調整したら、それは原理を破っているサイン**。
+
+1. **パッドの位置はモデルではなく TF で測る。** 「掌のこの位置から指先は前に 4.4 cm」と
+   いうモデルは、狙いを中央にした姿勢で 4.4 cm ではなく 7.7 cm だった。指令した姿勢で
+   実際のパッドを測り、その差だけ指令を動かす（1 回の補正で 77 mm → 0.5 mm 未満に収束）。
+2. **補正は腕にやる。ベースを動かしても残差は変わらない。** パッドも立方体もベースに
+   乗っているので `pads - cube` はベース移動で不変。残差を前進で消そうとした版は、
+   4 回連続で同じ 0.023 m を見続けた。
+3. **到達範囲は「実際にパッドが行く高さ」で測り、余白は前進で買う。** 中心高さで測った
+   0.307 m は、8 cm 下では 4 mm 狭い。余白が要るなら前に出る（近づくのは立方体だけ）。
+4. **近距離ではカメラは基準にならない。** 腕を伸ばすと再計測される中心が 1 ステップで
+   約 2 cm 前方へ「歩く」（腕が、姿勢の元の面を遮蔽する）。閉じた瞬間にカメラが「2.1 cm
+   手前」と言っていても実際は接触していた。**顎が止まったことだけが真実**。
+5. **探索の刻みは固定。** 空振りのたびに倍々にする版は 3 回とも把持に至らず、固定 5 mm は
+   4 回とも把持した。閉じる動作が唯一のセンサである以上、その間で 3〜7 倍動くのは根拠が無い。
+6. **ヨーは姿勢から取れない。** 面 PnP の向きは「どの面か」の 90° 量子化であって立方体の
+   回転角ではない（30° 回した立方体でも −90° と報告する）。それを使うと顎が 1/4 回転
+   ずれて補正が収束しない。**yaw 0 で 30° の立方体は初回の閉じで把持できた**（顎の開きが
+   十分）ので、本格的な yaw 推定は 45° で落ちたときに導入する。
+7. **手で選ぶ値はコストから決まるものだけにする。** 幾何に関する値はすべて実行時に測る
+   （到達範囲は IK 二分探索、パッドは TF、ピッチは収束したもの）。残るのは探索の刻みだけで、
+   これは「1 回閉じるのに何秒かかるか」で決まる。
+
+## 再現と確認
 
 ```
-[grasp]: GazeboGraspFix: Using release_tolerance 0.001
-[grasp]: GazeboGraspFix: Adding collision scoped name ...gripper_left_link::gripper_left_link_collision
-[grasp]: GazeboGraspFix: Adding collision scoped name ...gripper_right_link::gripper_right_link_collision
-[grasp]: Subscribing contact manager to topic ~/turtlebot3_lime_system/contacts
-[grasp]: grasp plugin is loaded
+./bin/cccsim --tree ccapproach --grasp --record --keep    # 約 5 分で把持まで
+CCCSIM_CUBE_YAW=30 ./bin/cccsim --tree ccapproach --grasp --record   # 回した立方体
 ```
 
-ビルドは `/tmp/graspws`（`dependencies.repos` には未反映）、
-`GAZEBO_PLUGIN_PATH` と `LD_LIBRARY_PATH` に
-`libgazebo_grasp_plugin/gazebo_grasp_plugin` と `gazebo_version_helpers/lib` を足すと
-ロードできる（`libgazebo_version_helpers.so` が無いとロードに失敗する）。
+- 把持本体は `sim/grasp_cube.py`（IK → 関節軌道 → 触覚探索 → 持ち上げ）。
+  木（`ccapproach`）は探索・接近・照準までを担当する。
+- 証拠は `yolo_ws/log/cccsim/<stamp>-<sha>/`。`camera_view` / `third_person_view` /
+  `overlay_view`（認識の可視化）/ `grasp_view`（把持の狙いと下降）の 4 本と、各ステージのログ。
+- 把持後に立方体が吹き飛ぶのは Gazebo の接触発散で、対象外。
 
-## 推奨する適用順
+## 未解決
 
-1. `cm1` の `arm` 生成直後に `arm.allowed_planning_time = 5.0` を設定する。
-   これで `ArmToCube` の pose goal が通るか再確認する（現状は 0.5 秒で失敗）。
-2. `dependencies.repos` のコメントアウトを活かして `kongoncharuk/gazebo-pkgs`
-   (`humble`) を追加し、`lib_ws` でビルド。`GAZEBO_PLUGIN_PATH` /
-   `LD_LIBRARY_PATH` を `sim/stack.sh` に足す。`LinkAttacher` は把持失敗時の
-   フォールバックに降格する。
-3. 1 でも届かない姿勢が残るなら `ros-humble-pick-ik` を入れ、`kinematics.yaml` の
-   `kinematics_solver` を `pick_ik/PickIkPlugin` に差し替える。
-
-## 参考（現状の数値）
-
-- 指の関節は `effort=1 N` / `dynamics friction=1.0` / `damping=0.7` でほぼ閉じられない。
-  `sim/rsp_sim.launch.py` の tuning で 10 N / 0.01 / 0.02、パッド `mu=2.0` に変更済み。
-- 立方体は 0.08 kg、`mu 0.9`、1 m 先の床。
-- depth は `<min_depth>0.05</min_depth>` を plugin に入れて 0.26 m から有効。
-  1 m での中心推定は 0.841 m（真値 0.851 m）。
-
-## 実走で分かった決定的な制約（追記）
-
-`ccapproach`（探索・接近）+ `sim/grasp_cube.py`（IK→関節軌道→把持→持ち上げ）を
-実走させ、指先位置を TF で実測した。
-
-- **position-only IK**（shipped 設定）: IK は解けるが掌の向きが自由なので、指先は目標の
-  **5.7 cm 上**に来る（実測 pads `(0.274, -0.022, 0.050)` / 立方体 `(0.311, -0.001, -0.007)`）。
-  その誤差を補正すると end effector の z が **-0.019 m**（床下）になり IK は `-31`。
-- **向きを効かせた IK**（`position_only_ik: False`）: 掌を下に向けた姿勢は、到達距離内
-  （例 0.19 m）でも **全候補が `-31`**。
-
-つまり **「掌を下にして床の立方体を 0.3 m 先で掴む」は、この 6 軸アームの可動域的・
-姿勢的に成立しない**（チューニングの問題ではない）。実測にもとづく結論。
-
-### 成立しうる代替（推奨順）
-
-1. **前面把持**: 掌を +x に向け、指を立方体の左右面で挟む。手首が立方体の高さに留まるため
-   可動域に余裕がある。`gazebo_grasp_fix` は「接触したら保持」なので、指が触れさえすれば
-   把持が成立する。
-2. **台を置く**: 立方体を数 cm 高い台に載せ、掌下向きの把持を可能にする（シナリオ変更）。
-3. **接触アシスト前提で接近だけ最適化**: 指先が立方体に触れる位置まで近づけ、
-   保持はプラグインに任せる。
-
-
-## Addendum 2026-10-22: what the close-range correction can and cannot do
-
-Measured while trying to make contact repeatable.
-
-- **Driving the base cannot close a pads-vs-cube residual.** Both the pads and the
-  cube ride on the base, so `pads - cube` is invariant under a base move. An earlier
-  verify loop drove the base by the residual and watched the same 0.023 m for four
-  checks; it was correcting the one thing that could not change.
-- **The correction has to be an arm re-aim.** IK leaves the pads consistently short
-  of the aim (0.022 m at every height tried), and re-solving at `aim + residual`
-  moves them by exactly that amount (measured: pads 0.217 -> 0.240 for a 0.023 m
-  correction).
-- **Once the arm is in front of the camera, the cube measurement stops being a
-  fixed reference.** With the arm extended toward the cube the re-measured centre
-  walked forward about 2 cm per step (0.240 -> 0.261 -> 0.277) and the close-range
-  aims then drifted backwards as each solve used the drifted point. The arm
-  occludes the very face the pose comes from.
-- **Distinguishing sign convention worth keeping:** `residual > 0` means the pads
-  are *short* of the cube, because `pads_target = cube_x - FINGER_REACH_M`.
-- Contact has been reached in two runs (dz -0.05 and -0.06, `stalled=True` at
-  0.0155 and 0.0151) and missed in four. The misses share one shape: the visual
-  residual was not credible by the time the jaws closed.
-
-That was tried, and it is the answer. The loop now takes at most two visual checks,
-corrects the aim on the arm, and then hands over to a touch sweep: close, and if the
-jaws pass each other, open, push the aim 5 mm forward and close again, lowering the
-aim a centimetre when a whole sweep finds nothing at that height.
-
-Two runs in a row gripped on the very first close of the sweep (`stalled=True` at
-0.0147 and -0.0074). In the second, the camera still reported the pads 0.021 m short
-when the close stalled -- the occlusion error in the other direction, and proof that
-the visual residual should not be an acceptance test at this range. The sweep costs
-nothing when it works first time, and it is the only thing that worked when it did
-not.
-
-### Sweep envelope, measured 2026-10-22 (three runs with the sweep in place)
-
-| run | where the grip happened | forward searched | height steps used |
-|---|---|---|---|
-| 1 | touch 0.0 | 0 mm | 0 |
-| 2 | touch 0.0 | 0 mm | 0 |
-| 3 | touch 0.5 | 25 mm (5 x 5 mm) | 0 |
-
-So the sweep is not decoration: one run in three needed 25 mm of forward search, and
-none needed a height step. The 5 mm creep resolved it without overshooting into the
-cube, and the 5 mm height step has not yet been exercised -- it exists for the
-centimetre of run-to-run height spread that earlier runs did show (-0.05 vs -0.06).
-
-## Replacing the tuning with measurement (2026-10-22, later)
-
-Every constant that had been tuned by re-running the grasp is now measured at run
-time. Four quantities, four measurements:
-
-| was | is |
-|---|---|
-| `GRASP_CANDIDATES` (pitch, dz) pairs, tuned over six runs | **where the pads actually go**: each round moves the command by the measured shortfall (round 1: +0.044/0/-0.077, round 2: 0/0/0) |
-| `GRASP_PITCH_ORDER` (150, 120, 135, 105) by hand | the pitch that converges is the one used; the grid is walked until a pose is accepted |
-| base distance 0.24 m fixed | **the arm's own reach**, bisected through IK (measured 0.307 m at pitch 150), minus a 3 cm margin for the sweep |
-| creep 5 mm, lowering 5 mm to 10 mm fixed | the sweep doubles its step on an empty close (an empty close proves the cube is beyond the pads) and lowers by what was already tried |
-
-Result of the first run with all four in place: reach 0.307 m measured, aim converged
-to 0.000 m in two rounds, one empty close, one 5 mm lowering, then `stalled=True`.
-
-Two mistakes made on the way are worth keeping, because both look like progress:
-
-- Sizing the sweep step and the lowering from `target - aim` used the *wrist-to-pads*
-  offset (0.022 m), not a measured error. It produced a 2.2 cm first step and a 4.7 cm
-  drop, and the arm ran out of reach.
-- Correcting the aim from one fixed first guess hangs when that guess is unreachable:
-  at the pre-grasp distance the centre aim is refused at every pitch while 3 cm lower
-  solves at 150. The grid of first guesses exists only to find one accepted pose.
-
-### Tuning the last two numbers from their measured distributions, and one revert
-
-`PAD_TOLERANCE_M` and `REACH_MARGIN_M` were the last hand-picked values. Both now come
-from what the runs did:
-
-| number | data | value |
-|---|---|---|
-| pad tolerance | one correction takes the error from up to 77 mm to under 0.5 mm, so the gate only absorbs TF rounding | 12 mm -> **3 mm** |
-| reach reserve | the largest forward shortfall a sweep has needed is 25 mm | 30 mm -> **35 mm** (25 mm + one 8 mm step) |
-
-Two mistakes found while measuring them, both worth keeping:
-
-- The reach probe used the cube's centre height (0.307 m at pitch 150). The pads work
-  4-8 cm lower, where the reach is shorter, so "there is room" was measured where the
-  arm never goes. The probe now runs at the grasp height, and the reserve is checked
-  against the corrected aim's own height.
-- The reserve has to be bought with a **forward** drive: the pads sit on the base, so
-  only the cube comes closer. Retreating buys nothing.
-
-The adaptive *sweep* was reverted. Doubling the forward step on each empty close
-(8/16/32 mm) gripped in none of three runs, while the fixed 5 mm sweep has gripped at
-0.0, 0.0, 0.5 and 1.0 across four. The doubling was not understood well enough to
-keep: it moves 3-7x further per attempt between two close measurements, and the
-close is the only sensor that works there.
-
-### The last height guess was unnecessary (2026-10-22, last)
-
-`GRASP_BELOW_M = 0.045` was the final hand-picked number: "the pads work this far below
-the cube centre", taken from a single measurement. It was used to ask the reach question
-at the right height, and the recent logs show it was also wrong -- the first-round z
-shortfall at the centre aim measured 0.077 m, not 0.045 m.
-
-It is gone rather than corrected. Both sides of the reach comparison can be measured:
-where the pads are now (`fingertip_midpoint`, TF) and how far forward they can be posed
-at that height (IK bisection). room = reach(pads_z) - pads_x. A failed aim is answered
-by driving forward, which is the only direction that brings the cube into the envelope.
-
-Two runs with that in place: pads 0.240 m, reach 0.307 m at that height, 0.067 m of
-search room; aim converged 0.044/0/-0.077 -> 0/0/0; grip on touch 1.0 and 0.1.
-
-What is left hand-picked in the grasp path is only the search's own step sizes (5 mm),
-which are bounded by what a close costs rather than by geometry.
-
-### Gripper yaw: tried, measured, and not needed yet (2026-10-22)
-
-The grasp always approaches at yaw 0, which looked like the next real-robot gap: a cube
-turned 45 degrees presents its diagonal (1.41x wider) at the jaws. Two things were
-measured.
-
-**The pose cannot supply the yaw.** The single-view face solve reports which face it is
-looking at; its orientation is quantised to the face grid, so a cube turned 30 degrees
-still reports -90. Using that as the gripper yaw turned the jaws a quarter turn away
-from the cube, and the aiming stopped converging -- one round per grid point, pads off
-by +0.022/-0.022, then IK refusing the corrected aim. This matches the documented
-limitation of the coplanar single-face solve: position is good, yaw is not decided.
-
-**The alignment is not what blocks anything today.** With the cube spawned at 30 degrees
-and the gripper at yaw 0, the run gripped on the first close (`stalled=True` at
-0.0047). So the jaws are wide enough for a turned cube, and a real yaw estimate (two
-visible faces, or a top-face corner detector) is something to add when a cube is turned
-far enough to fail, not before.
-
-`sim/spawn_cube.py` takes a yaw and `bin/cccsim` forwards `CCCSIM_CUBE_YAW`, so that
-case can be provoked deliberately.
+- 立方体を 45° 以上回した場合（顎の開きでは吸収できない領域）。
+- 実機での再現。sim は TF と IK サービスを持っているが、実機の相当物に置き換える必要がある。
+  `/cube_pose_result` の契約は同じものを使う想定。
