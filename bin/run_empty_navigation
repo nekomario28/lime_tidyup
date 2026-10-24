@@ -1,0 +1,29 @@
+#!/usr/bin/env bash
+set -e
+
+cleanup() {
+  kill "${NAV_PID:-}" "${SIM_PID:-}" 2>/dev/null || true
+}
+trap cleanup EXIT INT TERM
+
+/root/bin/run_empty gui:=false &
+SIM_PID=$!
+
+until ros2 service list 2>/dev/null | grep -q '^/controller_manager/list_controllers$'; do
+  kill -0 "$SIM_PID"
+  sleep 1
+done
+
+/root/bin/run_navigation /project/resource/map/empty_world_map.yaml &
+NAV_PID=$!
+
+until ros2 lifecycle get /amcl 2>/dev/null | grep -q 'active'; do
+  kill -0 "$NAV_PID"
+  sleep 1
+done
+
+# Match gazebo.launch.py's default spawn pose so AMCL publishes map -> odom.
+ros2 topic pub --once /initialpose geometry_msgs/msg/PoseWithCovarianceStamped \
+  "{header: {frame_id: map}, pose: {pose: {position: {x: -2.0, y: -0.5, z: 0.0}, orientation: {w: 1.0}}, covariance: [0.25, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.25, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0685]}}"
+
+wait "$NAV_PID"
