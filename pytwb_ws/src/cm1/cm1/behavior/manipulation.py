@@ -109,7 +109,8 @@ class ArmToCube(ActorBT):
     desc = "aim the arm at the detected cube with an explicit orientation"
 
     def __init__(self, name, node, standoff=0.12, roll=180.0, pitch=0.0,
-                 yaw=0.0, minimum_confidence=0.30, require_color_fixed=1):
+                 yaw=0.0, minimum_confidence=0.30, require_color_fixed=1,
+                 require_ik=0):
         super().__init__(
             name,
             ((
@@ -121,6 +122,7 @@ class ArmToCube(ActorBT):
                     float(yaw),
                     float(minimum_confidence),
                     bool(float(require_color_fixed)),
+                    bool(float(require_ik)),
                 ),
             ),),
         )

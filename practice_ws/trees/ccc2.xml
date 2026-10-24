@@ -1,0 +1,114 @@
+<root>
+    <BehaviorTree ID="cube_grab_ik">
+        <Sequence name="main">
+            
+            <!-- 0. 位置指定 -->
+
+            <SetDestinationByName name="set_init" destination="C"/>
+
+            <!-- 1. 低confidence候補も探索対象にする。接近許可は後段RGB-Dで判定 -->
+            <SearchCube
+                name="search_cube"
+                threshold="[0.30]"/>
+
+            <!-- 2. 候補を画像中央に合わせる。ここではまだ移動権限を与えない -->
+            <TakeAim
+                name="take_aim_before_approach"
+                threshold="[0.30]"
+                turn_speed="[0.15]"
+                center_tolerance="[12.0]"/>
+
+            <!-- 3. 低confidence候補をDepth + 57mm幾何 + 3/5 temporalで確認してから接近。
+                 stop_distance=0.12: IK で把持できるのは立方体が base_link 前方
+                 0.20-0.24m にあるとき（実測）。カメラ距離 0.30 では立方体が x≈0.33 に
+                 残ってリーチ外。 -->
+            <GoFrontCube
+                name="go_front_cube"
+                threshold="[0.30]"
+                stop_distance="[0.12]"
+                forward_speed="[0.15]"
+                turn_speed="[0.15]"
+                target_offset_px="[40]"
+                pose_max_reprojection_error_px="[1.5]"
+                use_pose_3d="[0]"
+                depth_sample_count="[1]"
+                depth_roi_fraction="[0.35]"
+                depth_minimum_valid_ratio="[0.60]"
+                depth_maximum_mad_m="[0.025]"
+                depth_maximum_spread_m="[0.030]"
+                cube_side_length_m="[0.057]"
+                geometry_minimum_scale="[0.60]"
+                geometry_maximum_scale="[1.90]"
+                temporal_window_size="[5]"
+                temporal_required_count="[3]"
+                temporal_center_distance_px="[60]"/>
+            <!-- 4. 接近済み・確認済みの同一候補を再び中央に合わせる -->
+            <TakeAim
+                name="take_aim_after_approach"
+                threshold="[0.30]"
+                turn_speed="[0.10]"
+                center_tolerance="[10.0]"/>
+  
+            <!-- 5. 認識した立方体の姿勢に IK で向きを合わせ、事前把持→把持へ移る。
+                 工具軸（指の向く方向）を真下に向ける roll=180 はこのアームでは
+                 幾何的に不可能: PyKDL の掃引で把持点まわりの最良が鉛直から 23.7 度、
+                 45 度前下がりなら 2.6 度。実際 roll=180 は /compute_ik が -31
+                 (NO_IK_SOLUTION) を返し、腕は動かなかった。前下がり 25 度
+                 (roll=0, pitch=155, 指は水平のまま) と standoff 0.06 の組で、
+                 事前把持と把持の両方が解ける。
+                 require_color_fixed=0: ArmToCube が使うのは立方体の中心だけで、
+                 対称同値な姿勢はすべて同じ中心を指す（向きはこのツリーが与える）。 -->
+            <Open name="open_gripper"/>
+            <ArmToCube
+                name="move_to_pregrasp_ik"
+                standoff="0.06"
+                roll="0.0"
+                pitch="155.0"
+                yaw="0.0"
+                minimum_confidence="0.30"
+                require_color_fixed="0"
+                require_ik="1"/>
+            <ArmToCube
+                name="move_to_grasp_ik"
+                standoff="0.0"
+                roll="0.0"
+                pitch="155.0"
+                yaw="0.0"
+                minimum_confidence="0.30"
+                require_color_fixed="0"
+                require_ik="1"/>
+
+            <!-- 6. その場でキューブをつかむ -->
+            <Close name="grab_cube"/>
+
+            <!-- 8. つかみ終わるまで待つ -->
+            <Sleep
+                name="wait_after_grab"
+                time="[2.0]"/>
+
+            <!-- 9. アームを初期姿勢へ戻す -->
+            <ArmHome name="arm_home"/>
+
+            <!-- 10. つかんだキューブを置く場所まで移動する -->
+            
+            <GoToPose name="go" />
+
+            <!-- 11. 物を置く -->
+
+            <Hirou_Pose name="hirou_pose"/>
+            <Open name="hirou"/> 
+
+            <!-- 12. アームを初期姿勢へ戻す -->
+
+            <ArmHome name="arm_home"/> 
+            <Close name="grab_cube"/>
+
+            <!-- 13. 初期位置へ戻る -->
+
+            <SetDestinationByName name="set_init" destination="INIT"/>
+            <GoToPose name="move_to_place_loc"/>
+            
+
+        </Sequence>
+    </BehaviorTree>
+</root>

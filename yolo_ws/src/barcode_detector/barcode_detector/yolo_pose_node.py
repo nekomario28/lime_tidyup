@@ -19,7 +19,11 @@ except Exception:  # pragma: no cover - absence is a supported configuration
 
 from .cube_pose_3d import CubePose3DError, estimate_cube_pose_3d
 from .cube_bbox_source import BboxSourceError, choose_bbox
-from .cube_single_view_pose import FacePoseError, estimate_face_pose
+from .cube_single_view_pose import (
+    FacePoseError,
+    estimate_face_pose,
+    face_box_from_color,
+)
 from .cube_model_free_pose import (
     ModelFreePoseError,
     estimate_model_free_pose,
@@ -439,8 +443,11 @@ class YoloPoseNode(Node):
                 cv_image, msg, now
             )
             if detections:
+                source = detections[0]['pose_evidence'].get(
+                    'bbox_source', '?')
                 self.get_logger().info(
-                    f'published {len(detections)} model-free detections'
+                    'published %d model-free detections (%s)'
+                    % (len(detections), source)
                 )
             return
 
@@ -653,12 +660,14 @@ class YoloPoseNode(Node):
             x0, y0, x1, y1 = self.bbox_roi
             roi = (x0 * width, y0 * height, x1 * width, y1 * height)
         try:
-            if self.bbox_source == 'colour_blob':
-                box = choose_bbox('colour_blob', image_bgr=cv_image)
-            else:
-                box = choose_bbox(
-                    'depth_blob', depth_image=self.latest_depth, roi_xyxy=roi
-                )
+            # The source decides what it needs and ignores the rest (see
+            # cube_bbox_source for what each one accepts).
+            box = choose_bbox(
+                self.bbox_source,
+                image_bgr=cv_image,
+                depth_image=self.latest_depth,
+                roi_xyxy=roi,
+            )
         except BboxSourceError as error:
             self.get_logger().debug(f'bbox rejected: {error}')
             return detections
@@ -709,8 +718,13 @@ class YoloPoseNode(Node):
                 # but with the rotation the depth route cannot give.
                 face_pose = None
                 try:
-                    face_pose = self._single_view_pose(box.box_xyxy,
-                                                       image_msg, timestamp)
+                    # The visible face's own box, not the cube's: the label the solve
+                    # reads comes from the middle of the box, and the cube's box can
+                    # put that on a tile border (measured 2026-10-24).
+                    face_pose = self._single_view_pose(
+                        face_box_from_color(cv_image, box.box_xyxy)
+                        or box.box_xyxy,
+                        image_msg, timestamp)
                 except FacePoseError as error:
                     # A refusal is per-frame and expected: the solve refuses whenever
                     # the quad is incomplete or a vertex is behind the camera, which is
@@ -750,10 +764,27 @@ class YoloPoseNode(Node):
                 # the fallback routes even though the two-face route refused: drawn as
                 # 'bbox_only' it said no pose on every frame of a run that was publishing
                 # one, which is exactly the window a reader trusts to explain a frame.
+                # Draw the single-view face pose: with the face's own box it lands on
+                # the cube (verified offline on recorded ccc2 frames 2026-10-24:
+                # single-face, colours resolved, wireframe on the visible face). The
+                # depth-centre pose is deliberately not drawn: its orientation is a
+                # guess, and a wireframe that sits plausibly while being 90 deg out is
+                # worse than none.
                 self._publish_model_free_overlay(
                     cv_image, image_msg, timestamp,
-                    status=detection['pose_evidence'].get('pose_status', 'rejected'),
-                    reason=detection['pose_evidence'].get('pose_reason', str(error)),
+                    pose=face_pose,
+                    bbox_xyxy=box.box_xyxy,
+                    status=('single_face' if face_pose is not None
+                            else detection['pose_evidence'].get(
+                                'pose_status', 'rejected')),
+                    # Say which route drew the wireframe. Not `str(error)`: the inner
+                    # `except FacePoseError as error` deletes that name at the end of
+                    # its block, so referring to it here raised UnboundLocalError
+                    # whenever the face solve refused (found 2026-10-24: the perception
+                    # node died on that path).
+                    reason=('pose from the single visible face'
+                            if face_pose is not None
+                            else detection['pose_evidence'].get('pose_reason', '')),
                     bbox_source=box.source,
                 )
             else:
@@ -793,7 +824,7 @@ class YoloPoseNode(Node):
 
     def _publish_model_free_overlay(
         self, cv_image, image_msg, timestamp, *, pose=None, status='unknown',
-        reason='', bbox_source='',
+        reason='', bbox_source='', bbox_xyxy=None,
     ):
         """Publish the annotated frame rqt shows, for accepted and rejected ones.
 
@@ -822,7 +853,13 @@ class YoloPoseNode(Node):
         source = bbox_source
         quality = None
         box = None
-        if pose is not None:
+        if isinstance(pose, dict):
+            # a route that carries its pose as a dict (the single-view face solve)
+            pose_dict = {
+                'position_m': list(pose['position_m']),
+                'orientation_xyzw': list(pose['orientation_xyzw']),
+            }
+        elif pose is not None:
             pose_dict = {
                 'position_m': list(pose.translation_m),
                 'orientation_xyzw': list(pose.orientation_xyzw),
@@ -840,6 +877,9 @@ class YoloPoseNode(Node):
             source = pose.bbox_source
             quality = float(pose.bbox_quality)
             box = pose.bbox_xyxy
+        elif bbox_xyxy is not None:
+            box = [float(value) for value in bbox_xyxy]
+            source = source or 'box only'
         elif self.latest_depth is not None:
             source = source or 'depth_blob'
 

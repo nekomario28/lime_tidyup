@@ -40,14 +40,62 @@ class FacePoseError(ValueError):
     """Raised when no face hypothesis explains the observation."""
 
 
+def _clipped_bounds(image_bgr, bbox_xyxy):
+    """The box's pixels inside the image, as (x0, y0, x1, y1).
+
+    Every entry point into this module starts by turning a box into a region of
+    the image, and each one used to repeat the same rounding and clipping.
+    """
+    image = np.asarray(image_bgr)
+    x0, y0, x1, y1 = (int(round(float(value))) for value in bbox_xyxy)
+    x0, y0 = max(0, x0), max(0, y0)
+    return x0, y0, min(image.shape[1], x1), min(image.shape[0], y1)
+
+
+def face_box_from_color(image_bgr, bbox_xyxy):
+    """The tightest box around the largest strongly coloured region in `bbox_xyxy`.
+
+    The single-view solve narrows its quad with the colour's own mask, but the colour
+    label it reads comes from the middle of the box it is handed. With the whole
+    cube's box that middle can land on a tile border, the solve then describes a
+    different face, and a pose drawn from it does not sit on the cube (measured
+    2026-10-24: drawn about one cube width to the left and too large). Handing it the
+    visible face's own box keeps the label, the quad and the pose on one surface.
+
+    Returns None when there is no usable coloured region, so the caller can fall back
+    to the box it has.
+    """
+    import cv2
+
+    image = np.asarray(image_bgr)
+    x0, y0, x1, y1 = _clipped_bounds(image, bbox_xyxy)
+    if x1 - x0 < 4 or y1 - y0 < 4:
+        return None
+    roi = image[y0:y1, x0:x1]
+    hsv = cv2.cvtColor(roi, cv2.COLOR_BGR2HSV)
+    mask = ((hsv[:, :, 1] > 60) & (hsv[:, :, 2] > 30)).astype('uint8')
+    if int(mask.sum()) < 16:
+        return None
+    count, _, stats, _ = cv2.connectedComponentsWithStats(mask, 8)
+    if count <= 1:
+        return None
+    # range already starts at 1: adding one more made this able to index past the
+    # last row (found 2026-10-24: IndexError killed the perception node).
+    biggest = int(max(range(1, count),
+                      key=lambda index: int(stats[index, cv2.CC_STAT_AREA])))
+    bx, by, bw, bh, area = stats[biggest]
+    if int(area) < 16:
+        return None
+    return [float(bx + x0), float(by + y0),
+            float(bx + x0 + bw), float(by + y0 + bh)]
+
+
 def face_quad_corners(image_bgr, bbox_xyxy):
     """Corners of the visible face, ordered counter-clockwise from the top left."""
     import cv2
 
     image = np.asarray(image_bgr)
-    x0, y0, x1, y1 = (int(round(float(value))) for value in bbox_xyxy)
-    x0, y0 = max(0, x0), max(0, y0)
-    x1, y1 = min(image.shape[1], x1), min(image.shape[0], y1)
+    x0, y0, x1, y1 = _clipped_bounds(image, bbox_xyxy)
     if x1 - x0 < 6 or y1 - y0 < 6:
         raise FacePoseError('bbox is too small to find a face')
     crop = image[y0:y1, x0:x1]
@@ -77,9 +125,7 @@ def face_quad_corners(image_bgr, bbox_xyxy):
 def face_lab(image_bgr, bbox_xyxy, radius_fraction=0.2):
     """Median Lab of the face's middle, which is what the colour classifier reads."""
     image = np.asarray(image_bgr)
-    x0, y0, x1, y1 = (int(round(float(value))) for value in bbox_xyxy)
-    x0, y0 = max(0, x0), max(0, y0)
-    x1, y1 = min(image.shape[1], x1), min(image.shape[0], y1)
+    x0, y0, x1, y1 = _clipped_bounds(image, bbox_xyxy)
     centre_u = (x0 + x1) // 2
     centre_v = (y0 + y1) // 2
     radius = max(2, int(radius_fraction * min(x1 - x0, y1 - y0)))
@@ -134,9 +180,7 @@ def face_quad_from_color(image_bgr, bbox_xyxy, color):
     if centre is None:
         return None
     image = np.asarray(image_bgr)
-    x0, y0, x1, y1 = (int(round(float(value))) for value in bbox_xyxy)
-    x0, y0 = max(0, x0), max(0, y0)
-    x1, y1 = min(image.shape[1], x1), min(image.shape[0], y1)
+    x0, y0, x1, y1 = _clipped_bounds(image, bbox_xyxy)
     if x1 - x0 < 6 or y1 - y0 < 6:
         return None
     crop = image[y0:y1, x0:x1]
