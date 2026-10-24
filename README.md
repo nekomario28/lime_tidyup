@@ -68,11 +68,7 @@ The original Coke Can model is too heavy to pick as it is, so edit the model and
 ## Picking Operation
 The picking operation, which combines bt_search and bt_catch, can be executed by the 'bt_pick' Behavior Tree.
 
-## Simulation and perception notes
-`bin/cccsim` runs the whole cube-grasp simulation in one command — Gazebo with the
-cube, the robot with its camera, MoveIt, perception and `cm1` — and drops into the same
-prompt as `bin/ccc`: `./bin/cccsim --tree ccapproach --grasp --record`.
-
+## Design and research notes
 The notes live in two places. `doc/design/` describes how a subsystem is put together
 and why it is shaped that way; `doc/research/` holds what was measured, including the
 surveys of what already exists before building anything new.

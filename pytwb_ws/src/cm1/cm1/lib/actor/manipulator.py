@@ -241,8 +241,9 @@ class ManipulatorNetwork(SubNet):
         unresolved pose would aim at a symmetry-equivalent cube.
 
         Orientation is only honoured when the IK solver weights rotation, i.e.
-        when ``position_only_ik`` is false. ``bin/ccc2`` sets that before MoveIt
-        starts; with the upstream default the angles here would be ignored.
+        when ``position_only_ik`` is false. The container ships it as true, so
+        it has to be turned off in the image before MoveIt starts; with the
+        upstream default the angles here would be ignored.
         """
         try:
             msg = self.run_actor('cube_pose_result')
