@@ -1,5 +1,4 @@
 FROM osrf/ros:humble-desktop-full
-ARG DEBIAN_FRONTEND=noninteractive
 SHELL ["/bin/bash", "-c"]
 
 # If you get a gpg error during docker build, uncomment the following three lines:
@@ -13,6 +12,18 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 RUN apt-get update && apt install -y python3-colcon-common-extensions
 
+RUN python3 -m pip install --upgrade pip setuptools wheel
+
+RUN python3 -m pip install --no-cache-dir --ignore-installed \
+    numpy==1.26.4 \
+    pyquaternion \
+    matplotlib \
+    transforms3d \
+    simple-pid \
+    numpy-quaternion \
+    pyrealsense2 \
+    "opencv-python<4.10" \
+    "opencv-contrib-python<4.10"
 RUN pip3 uninstall -y numpy
 RUN pip3 install numpy==1.26.4
 RUN pip3 install pyquaternion matplotlib transforms3d simple-pid \
@@ -28,44 +39,7 @@ RUN pip3 install --no-cache-dir more-itertools numba tiktoken tqdm \
     && python3 -c "import whisper; whisper.load_model('base')"
 RUN pip install "opencv-python<4.10" "opencv-contrib-python<4.10" "numpy==1.26.4"
 
-RUN python3 -m pip install --no-cache-dir --ignore-installed \
-    numpy==1.26.4 \
-    pyquaternion \
-    matplotlib \
-    transforms3d \
-    simple-pid \
-    numpy-quaternion \
-    pyrealsense2 \
-    "opencv-python<4.10" \
-    "opencv-contrib-python<4.10"
-
-# Node.js のインストール
-RUN apt-get update && apt-get install -y nodejs npm && \
-    npm install n -g && \
-    n stable && \
-    apt purge -y nodejs npm && \
-    apt autoremove -y && \
-    hash -r
-
-WORKDIR /root
-RUN git clone https://github.com/yulat214/OneStageROS.git
-WORKDIR /root/OneStageROS
-RUN npm install
-RUN source /opt/ros/humble/setup.bash \
- && npm ci \
- && npx generate-ros-messages
-
-WORKDIR /root
-RUN git clone https://github.com/yulat214/sdf_building_editor.git
-WORKDIR /root/sdf_building_editor
-RUN pip install -r requirements.txt
-
-# --- Webots本体のインストール（cyberbotics公式リポジトリ） ---
-RUN mkdir -p /etc/apt/keyrings && \
-    wget -qO- https://cyberbotics.com/Cyberbotics.asc | gpg --dearmor -o /etc/apt/keyrings/cyberbotics.gpg && \
-    echo "deb [signed-by=/etc/apt/keyrings/cyberbotics.gpg] https://cyberbotics.com/debian/ binary-amd64/" \
-      > /etc/apt/sources.list.d/cyberbotics.list && \
-    apt-get update && apt-get install -y --no-install-recommends webots
+#RUN pip3 install -U numpy
 
 # Create Colcon workspace with external dependencies
 WORKDIR /
@@ -126,26 +100,7 @@ RUN mkdir -p /root/turtlebot3_ws/src
 WORKDIR /root/turtlebot3_ws
 RUN git clone -b humble-devel https://github.com/ROBOTIS-JAPAN-GIT/turtlebot3_lime.git
 RUN git clone https://github.com/ldrobotSensorTeam/ldlidar_stl_ros2.git
-
-# --- turtlebot3_lime本体へのWebots対応パッチ ---
-COPY ./project/resource/turtlebot3_lime_webots.patch /root/turtlebot3_ws/turtlebot3_lime/
-WORKDIR /root/turtlebot3_ws/turtlebot3_lime
-RUN git apply turtlebot3_lime_webots.patch && rm turtlebot3_lime_webots.patch
-
-RUN sed -i -E 's/^(\s*Frame Rate:\s*)[0-9]+/\110/' \
-      turtlebot3_lime_navigation2/rviz/navigation2.rviz \
-      turtlebot3_lime_moveit_config/config/moveit.rviz
-
-RUN sed -i -E 's/^([[:space:]]*laser_max_range:[[:space:]]*)[0-9.]+/\13.4/' \
-    turtlebot3_lime_navigation2/param/turtlebot3*.yaml
-
-RUN sed -i 's/^\(\s*base_frame_id:\s*\)"base_footprint"/\1"base_link"/' \
-      /root/turtlebot3_ws/turtlebot3_lime/turtlebot3_lime_navigation2/param/turtlebot3.yaml \
- && grep -q 'base_frame_id: "base_link"' \
-      /root/turtlebot3_ws/turtlebot3_lime/turtlebot3_lime_navigation2/param/turtlebot3.yaml
-
-WORKDIR /root/turtlebot3_ws
-
+RUN git clone -b foxy-devel https://github.com/pal-robotics/realsense_gazebo_plugin.git
 RUN source /opt/ros/${ROS_DISTRO}/setup.bash \
     && colcon build --symlink-install
 WORKDIR /root/turtlebot3_ws/install

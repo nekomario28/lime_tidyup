@@ -99,7 +99,10 @@ class CognitiveNetwork(SubNet):
         while True:
             point = self.run_actor("find_object")
             if not point:
+                
+                print("🔴 [5] get_found: Loop broken because point is None")
                 return None
+            print(f"🟢 [5] get_found: Point added. Current count: {len(cand_points)}") # 追加
             trans = self.run_actor("map_trans")
             point.setTransform(trans.transform)
             if point.valid:
@@ -173,28 +176,9 @@ class CognitiveNetwork(SubNet):
         depth_image = cv_bridge.imgmsg_to_cv2(data)
         zp = len(depth_image) - 200
         det_line = depth_image[zp]
-        _, value = self.argmin_valid_band(depth_image, zp)
-        distance = value / 1000
+        d_index = det_line.argmin()
+        distance = det_line[d_index] / 1000
         mes_distance = distance
-
-        # This width scan used to just take whatever was closest in the row,
-        # with no regard for what it actually was. Late in the pick sequence
-        # the arm swings down directly in front of the base-mounted camera,
-        # so "closest thing in this row" is very often the arm itself rather
-        # than the can, aiming the final angle correction at empty air.
-        # Restrict the scan to pixels that are actually can-colored.
-        color_row_mask = None
-        try:
-            color_data = self.run_actor('pic')
-            cv_bridge = self.get_value('cv_bridge')
-            cv_image = cv_bridge.imgmsg_to_cv2(color_data, "bgr8")
-            hsv_row = cv2.cvtColor(cv_image[zp:zp + 1], cv2.COLOR_BGR2HSV)
-            color_row_mask = cv2.inRange(
-                hsv_row, np.array([150, 70, 0]), np.array([180, 255, 255])
-            )[0] > 0
-        except Exception:
-            color_row_mask = None
-
         min_index = 600
         max_index = 0
         for i, v in enumerate(det_line):
@@ -260,6 +244,8 @@ class CognitiveNetwork(SubNet):
     def find_object(self, minus: bool = False):
         center = self.run_actor("pic_find")
         if not center:
+            print("🔴 [3] find_object: pic_find returned None") 
+           
             return None
         data = self.run_actor("depth")
         cv_bridge = self.get_value("cv_bridge")
@@ -270,7 +256,10 @@ class CognitiveNetwork(SubNet):
         rel_yp, rel_zp = self.adjust(yp, zp, self.depth_shape)
         distance = depth_image[rel_zp][rel_yp] / 1000
         if isinf(distance):
+           
+            print("🔴 [4] find_object: distance is Infinity (測距失敗)")
             return None
+        print(f"🟢 [4] find_object success! distance: {distance}") 
         if distance == 0:
             print("find_object zero distance")
             distance = 0.2

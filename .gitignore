@@ -1,4 +1,7 @@
 # Python bytecode/cache
+roscommon/
+project/test_ws/
+# Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[cod]
 *$py.class
@@ -16,6 +19,9 @@ htmlcov/
 build/
 dist/
 *.egg-info/
+yolo_ws/install/
+yolo_ws/log/
+*.cache
 
 # ROS/colcon build artifacts
 install/

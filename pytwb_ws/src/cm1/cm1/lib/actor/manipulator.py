@@ -139,19 +139,6 @@ def wait_until_executed(arm):
         sleep(0.5)
 
 class ManipulatorNetwork(SubNet):
-    # Lift the end effector straight up from wherever it currently is
-    # (relative joint adjustment, not an absolute target), before handing
-    # off to home(). home() plans a joint-space move from the current pose
-    # with no idea an object is being held, so on a short/close pick it can
-    # dip through a low path and drag the object along the ground; lifting
-    # clear first avoids that regardless of where the pick happened.
-    @actor
-    def pick_up(self):
-        joint = [0.0, radians(34), radians(87), 0.0, radians(-78), 0.0]
-        self.run_actor('move_joint', *joint)
-        return True
-
-
     # set to home position
     @actor
     def home(self):
@@ -624,8 +611,8 @@ class ManipulatorNetwork(SubNet):
         self.run_actor('sleep', 3.0)
         return True
         '''
-        # joint = [0.0, 1.75, 1.4, 0.0, -1.6, 0.0]
-        joint = [0.0, radians(97), radians(83), 0.0, radians(-83), 0.0]
+        joint = [0.0, 1.75, 1.4, 0.0, -1.6, 0.0]
+#        joint = [0.0, radians(89), radians(84), 0.0, radians(-82), 0.0]
         joint[0] = dir
         self.run_actor('move_joint', *joint)
         return True
