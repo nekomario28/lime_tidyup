@@ -205,3 +205,9 @@ __pycache__/
 # 一致しない（実測: command.log:Zone.Identifier が追跡されたままだった）
 *.Zone.Identifier
 *:Zone.Identifier
+
+# The actor links every tree in practice_ws/trees into cm1/trees when it starts
+# (cm1/app_main.py runs make_symbolic_link), so a tree that is not committed
+# shows up here as an untracked symlink nobody created by hand. ccc2 is created
+# on demand that way; the links that belong to the repo stay tracked.
+/pytwb_ws/src/cm1/cm1/trees/ccc2.xml
