@@ -70,6 +70,7 @@
                 require_ik="1"/>
             <ArmToCube
                 name="move_to_grasp_ik"
+                reuse_pose="1"
                 standoff="0.0"
                 roll="0.0"
                 pitch="155.0"

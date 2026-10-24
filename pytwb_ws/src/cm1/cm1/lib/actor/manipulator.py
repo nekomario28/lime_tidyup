@@ -241,6 +241,7 @@ class ManipulatorNetwork(SubNet):
         minimum_confidence=0.30,
         require_color_fixed=True,
         require_ik=False,
+        reuse_pose=False,
         grasp_at_fingers=True,
         direct_ik=True,
     ):
@@ -308,6 +309,24 @@ class ManipulatorNetwork(SubNet):
             tf.transform.translation.z,
         ])
         point_base = rotation @ point_camera + translation
+
+        # ccc2's grasp step reuses the position its pregrasp measured. The
+        # pregrasp puts the arm in front of the camera, the cube's colour region
+        # then shrinks to whatever is still visible, and the single-view pose
+        # jumps: measured 2026-10-24 with the cube at yaw 45 deg, y went from
+        # -0.014 to -0.096 m between the two steps while the base stood still, and
+        # the grasp's IK answered -31, so the tree failed closed (require_ik)
+        # instead of grasping. Only the position is reused; the orientation still
+        # comes from this call's own arguments.
+        if reuse_pose:
+            cached = self.get_value('last_cube_point_base')
+            if cached is not None:
+                point_base = tuple(float(value) for value in cached)
+                print('arm_to_cube: reusing the cube position from the previous '
+                      'step (%.3f, %.3f, %.3f)' % point_base)
+        else:
+            self.set_value('last_cube_point_base',
+                           tuple(float(value) for value in point_base))
 
         # Aim the *fingertips* at the cube, not the wrist. pymoveit2 moves
         # end_effector_link, which on this URDF sits 11.5 cm past link7 while the
