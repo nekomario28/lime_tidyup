@@ -157,7 +157,15 @@ class ManipulatorNetwork(SubNet):
     def home(self):
 #        joint = [0.0, 1.0, 1.575, 0.0, -1.0, 0.0]
         joint = [0.0, radians(-63), radians(107), 0.0, radians(56), 0.0]
-        self.run_actor('move_joint', *joint)
+        # arm_home is where the tree stops after a close that worked, with an
+        # empty 'bt error:' again. Name the exception here the way full_close
+        # does; the report must not be able to fail the step on its own.
+        try:
+            self.run_actor('move_joint', *joint)
+        except Exception as error:  # noqa: BLE001
+            print(f'home: raised {type(error).__name__}: {error!r}',
+                  flush=True)
+            raise
         return True
 
     @actor
