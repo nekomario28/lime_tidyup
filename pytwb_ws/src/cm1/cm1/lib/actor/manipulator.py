@@ -465,11 +465,21 @@ class ManipulatorNetwork(SubNet):
             if gripper.query_state() == MoveIt2State.IDLE:
                 break
             sleep(0.5)
-        jstat = self.get_value('jstat') or {}
-        fingers = {name: jstat.get(name)
-                   for name in ('gripper_left_joint', 'gripper_right_joint')}
-        print(f'full_close: state={gripper.query_state()} fingers={fingers}',
-              flush=True)
+        # Reporting must never be able to abort the tree: the first version of
+        # this used get_value('jstat'), which is an actor proxy and has no .get,
+        # and the AttributeError propagated into the spin thread and stopped the
+        # tree (measured 2026-10-24). run_actor is the call the rest of this file
+        # uses for joint states, and anything unexpected in the report is caught.
+        try:
+            jstat = self.run_actor('jstat') or {}
+            fingers = {name: jstat.get(name)
+                       for name in ('gripper_left_joint',
+                                    'gripper_right_joint')}
+            print(f'full_close: state={gripper.query_state()} '
+                  f'fingers={fingers}', flush=True)
+        except Exception as error:  # noqa: BLE001
+            print(f'full_close: could not report the state ({error!r})',
+                  flush=True)
         return True
 
     @actor
