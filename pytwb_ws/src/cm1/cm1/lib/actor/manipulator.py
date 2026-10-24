@@ -443,6 +443,16 @@ class ManipulatorNetwork(SubNet):
         gripper = self.get_value('gripper')
         gripper.move_to_position(-0.01)
         self.run_actor('sleep', 2)
+        # Unlike open_gripper/close_gripper this does not wait for the action, so
+        # a goal that fails surfaces later as an exception whose message is empty
+        # (measured 2026-10-24: 'bt error:' right after the close in 2 of 3 runs).
+        # Say what the gripper is doing and where the fingers ended up, so the
+        # next run says whether the close really happened or only announced itself.
+        jstat = self.get_value('jstat') or {}
+        fingers = {name: jstat.get(name)
+                   for name in ('gripper_left_joint', 'gripper_right_joint')}
+        print(f'full_close: state={gripper.query_state()} fingers={fingers}',
+              flush=True)
         return True
 
     @actor
