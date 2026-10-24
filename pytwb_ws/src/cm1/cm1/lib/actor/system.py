@@ -54,9 +54,9 @@ from .voice import VoiceNetwork
 MOVE_GROUP_ARM: str = "arm"
 MOVE_GROUP_GRIPPER: str = "gripper"
 
-OPEN_GRIPPER_JOINT_POSITIONS: List[float] = [0.019, 0.019]
+OPEN_GRIPPER_JOINT_POSITIONS: List[float] = [0.019]
 # CLOSED_GRIPPER_JOINT_POSITIONS: List[float] = [0.007, 0.007]
-CLOSED_GRIPPER_JOINT_POSITIONS: List[float] = [0.015, 0.015]
+CLOSED_GRIPPER_JOINT_POSITIONS: List[float] = [0.015]
 
 def joint_names() -> List[str]:
     return [
@@ -75,10 +75,14 @@ def end_effector_name() -> str:
     return "end_effector_link"
 
 def gripper_joint_names() -> List[str]:
-    return [
-        "gripper_left_joint",
-        "gripper_right_joint",
-    ]
+    # Only the joints /joint_states actually carries. The description makes
+    # gripper_right_joint the left finger's mimic, and joint_state_broadcaster
+    # skips mimics, so listing it made pymoveit2 log "Ignoring malformed or
+    # incomplete gripper joint state" for every message -- 31872 lines in one
+    # 40 s run (measured 2026-10-24), which buried the tree's own output and made
+    # the real failures unreadable. The right finger follows through the
+    # controller's mimic; nothing here needs its state.
+    return ["gripper_left_joint"]
 
 class Tb3(SubSystem):
     def __init__(self, name, parent):
