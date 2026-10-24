@@ -99,7 +99,10 @@ class CognitiveNetwork(SubNet):
         while True:
             point = self.run_actor("find_object")
             if not point:
+                
+                print("🔴 [5] get_found: Loop broken because point is None")
                 return None
+            print(f"🟢 [5] get_found: Point added. Current count: {len(cand_points)}") # 追加
             trans = self.run_actor("map_trans")
             point.setTransform(trans.transform)
             if point.valid:
@@ -241,6 +244,8 @@ class CognitiveNetwork(SubNet):
     def find_object(self, minus: bool = False):
         center = self.run_actor("pic_find")
         if not center:
+            print("🔴 [3] find_object: pic_find returned None") 
+           
             return None
         data = self.run_actor("depth")
         cv_bridge = self.get_value("cv_bridge")
@@ -251,7 +256,10 @@ class CognitiveNetwork(SubNet):
         rel_yp, rel_zp = self.adjust(yp, zp, self.depth_shape)
         distance = depth_image[rel_zp][rel_yp] / 1000
         if isinf(distance):
+           
+            print("🔴 [4] find_object: distance is Infinity (測距失敗)")
             return None
+        print(f"🟢 [4] find_object success! distance: {distance}") 
         if distance == 0:
             print("find_object zero distance")
             distance = 0.2
