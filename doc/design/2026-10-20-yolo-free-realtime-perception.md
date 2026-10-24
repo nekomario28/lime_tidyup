@@ -110,7 +110,7 @@ confidence = min(face_support_ok, geometry_gate_ok, 1 / (1 + rms_px), colour_res
 2. **`depth_blob` を実装**（sim の depth カメラ or 実機 RealSense）
    → 合格: 2 フレーム以上で bbox が安定し、姿勢が RMS<4px。
 3. **`ccc2` を 1 コンテナ化**（compose から `yolo` を外す）
-   → 合格: `./bin/ccc2` が yolo 無しで `ccik` まで到達。
+   → 合格: yolo サービス無し（知覚ノードは `perception_backend:=color_frontend`）で、当時の測定用ツリー `ccik` まで到達。
 4. **colour_pair は実験専用**として残す（既定 off）
    → 合格: 単色背景ワールドでのみ使えることが doc に書かれている。
 
@@ -130,7 +130,7 @@ confidence = min(face_support_ok, geometry_gate_ok, 1 / (1 + rms_px), colour_res
 | `cube_bbox_source.py` | `detector` / `depth_blob` を切り替える 1 点。`colour_pair` は**実験専用として明示的に拒否** | 17 unittest（近傍ブロブ受理、平面・斜面・小ブロブ・境界接触・範囲外を拒否、決定論、設定不正） |
 | `cube_model_free_pose` | `bbox_source` / `depth_image` / `roi_xyxy` を受ける。結果に `bbox_source` / `bbox_quality` / `bbox_xyxy` を付与 | depth 経路のテスト 3 本（depth から姿勢、平面のみは拒否、bbox も depth も無い場合は拒否） |
 | `yolo_pose_node` | `perception_backend=color_frontend` + `bbox_source=depth_blob` では**検出器を読み込まない**（`ultralytics` 不在でも import 可）。`depth_topic` / `depth_scale_m` を追加し、depth を購読して深度フレームから bbox を作る。`confidence` は幾何品質（色未解決でも接近は許可、フラグは `pose_3d` に載る） | `ultralytics` を欠落させた状態で import 成功を確認 |
-| `docker-compose.ccc2.yaml` + `bin/ccc2 --no-yolo` | `yolo` サービスを使わず、Lime コンテナ内で知覚ノードを build/起動（`yolo_ws` を mount）。depth topic/scale は CLI で指定 | dry-run で両モードのコマンド列を確認（--no-yolo: yolo なし、`bbox_source:=depth_blob`、`depth_topic` 指定） |
+| 知覚ノードを Lime コンテナ内で起動（当時: `docker-compose.ccc2.yaml` + `bin/ccc2 --no-yolo`）| `yolo` サービスを使わず、Lime コンテナ内で知覚ノードを build/起動（`yolo_ws` を mount）。depth topic/scale は CLI で指定 | dry-run で両モードのコマンド列を確認（--no-yolo: yolo なし、`bbox_source:=depth_blob`、`depth_topic` 指定） |
 
 `confidence` の再定義について: 色未解決のときに confidence を 0 に落とすと
 **接近そのものが止まり、2 面目が視野に入らず永久に未解決**になる。そのため
@@ -185,7 +185,7 @@ confidence は幾何品質のみとし、「色解決済みか」は `pose_3d` �
 ./bin/cubeview --topic /other --scale 1.5
 ```
 
-`bin/ccc2 --no-yolo` 実行中はログに `./bin/cubeview` の案内を出す。
+yolo 無しモードの実行中はログに `./bin/cubeview` の案内を出す。
 実測（sim depth フレーム、検出器なし）: wireframe が 57 mm キューブに一致、
 `+x=white +y=blue +z=orange`（すべて正解）、`rms=1.03px`、`colors=resolved`、
 `swaps=FFF`。再現は `doc/research/probes/2026-10-20_render_overlay.py`。

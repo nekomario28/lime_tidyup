@@ -17,7 +17,7 @@
 接触だけで cube を保持できるかを試した。コース由来の profile は試験中だけ使用し、作業ツリーへ
 残していない。
 
-実行: `./bin/cccsim --cube-distance 0.8 --tree ccapproach --grasp`、Gazebo Classic。
+実行（当時の sim ハーネス）: `./bin/cccsim --cube-distance 0.8 --tree ccapproach --grasp`、Gazebo Classic。
 ローカル evidence: `yolo_ws/log/cccsim/course-physics-ab-distance08/`。
 
 - Gazebo server、カメラ、3 controller、知覚、接近 tree が起動・完了。

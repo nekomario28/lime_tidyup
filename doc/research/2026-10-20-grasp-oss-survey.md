@@ -98,13 +98,13 @@
 ## 再現と確認
 
 ```
-./bin/cccsim --tree ccapproach --grasp --record --keep    # 約 5 分で把持まで
-CCCSIM_CUBE_YAW=30 ./bin/cccsim --tree ccapproach --grasp --record   # 回した立方体
+（当時の sim ハーネス）./bin/cccsim --tree ccapproach --grasp --record --keep    # 約 5 分で把持まで
+（当時）CCCSIM_CUBE_YAW=30 ./bin/cccsim --tree ccapproach --grasp --record   # 回した立方体
 ```
 
-- 把持本体は `sim/grasp_cube.py`（IK → 関節軌道 → 触覚探索 → 持ち上げ）。余白の判定は
+- 把持本体は当時の `sim/grasp_cube.py`（IK → 関節軌道 → 触覚探索 → 持ち上げ）。余白の判定は
   `reachable_aim_x`（狙い空間の二分探索）が担当し、探索はその余白を消費する。
-  木（`ccapproach`）は探索・接近・照準までを担当する。
+  当時の木（`ccapproach`）は探索・接近・照準までを担当する。
 - 証拠は `yolo_ws/log/cccsim/<stamp>-<sha>/`。`camera_view` / `third_person_view` /
   `overlay_view`（認識の可視化）/ `grasp_view`（把持の狙いと下降）の 4 本と、各ステージのログ。
 - 把持後に立方体が吹き飛ぶのは Gazebo の接触発散で、対象外。
