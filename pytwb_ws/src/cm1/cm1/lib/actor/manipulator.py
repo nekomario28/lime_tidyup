@@ -440,6 +440,19 @@ class ManipulatorNetwork(SubNet):
 
     @actor
     def full_close(self):
+        # The empty 'bt error:' after grab_cube means an exception whose str() is
+        # empty, and the print below never ran, so the failure is here rather than
+        # in an unawaited result. Name the exception instead of guessing at it:
+        # a bare raise keeps the tree's behaviour, the report is what is new.
+        try:
+            self.full_close_impl()
+        except Exception as error:  # noqa: BLE001
+            print(f'full_close: raised {type(error).__name__}: {error!r}',
+                  flush=True)
+            raise
+        return True
+
+    def full_close_impl(self):
         gripper = self.get_value('gripper')
         gripper.move_to_position(-0.01)
         # Wait for the action to finish, the way open_gripper/close_gripper do,
@@ -447,9 +460,7 @@ class ManipulatorNetwork(SubNet):
         # never reports IDLE would leave the tree neither finishing nor failing
         # -- the shape the IK deadline removed from the arm path. The tree sleeps
         # after the close anyway, so this only has to observe the end of the
-        # action. A goal that fails used to surface later as an exception with an
-        # empty message ('bt error:' right after the close in 2 of 3 runs); this
-        # makes the failure land inside the step that caused it.
+        # action.
         for _ in range(10):
             if gripper.query_state() == MoveIt2State.IDLE:
                 break
