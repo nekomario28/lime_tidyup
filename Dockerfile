@@ -104,6 +104,14 @@ RUN git clone -b foxy-devel https://github.com/pal-robotics/realsense_gazebo_plu
 RUN source /opt/ros/${ROS_DISTRO}/setup.bash \
     && colcon build --symlink-install
 WORKDIR /root/turtlebot3_ws/install
+# MoveIt ignores the requested orientation while the upstream kinematics.yaml keeps
+# position_only_ik: true, which makes any posed goal — the ccc2 grasp — meaningless.
+# Turn it off in the image, and fail the build if the key is not there to patch.
+RUN k=/root/turtlebot3_ws/install/turtlebot3_lime_moveit_config/share/turtlebot3_lime_moveit_config/config/kinematics.yaml \
+    && test -f "$k" \
+    && sed -i --follow-symlinks 's/^\([[:space:]]*\)position_only_ik:.*/\1position_only_ik: false/' "$k" \
+    && grep -n 'position_only_ik' "$k" \
+    && grep -q 'position_only_ik: false' "$k"
 COPY ./project/resource/turtlebot3_lime.urdf.xacro turtlebot3_lime_description/share/turtlebot3_lime_description/urdf
 # COPY ./project/resource/gazebo2.launch.py turtlebot3_lime_bringup/share/turtlebot3_lime_bringup/launch
 # COPY ./project/resource/moveit_gazebo2.launch.py turtlebot3_lime_moveit_config/share/turtlebot3_lime_moveit_config/launch
