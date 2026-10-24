@@ -62,7 +62,7 @@ class YoloPoseNode(Node):
         # Perception route. 'yolov8-pose' is the trained-keypoint path;
         # 'color_frontend' is the model-free geometry+colour path, which needs a
         # detector only for a bounding box.
-        self.declare_parameter('perception_backend', 'yolov8-pose')
+        self.declare_parameter('perception_backend', 'color_frontend')
         # Where the cube bounding box comes from. 'detector' keeps the previous
         # behaviour; 'depth_blob' needs no learned detector at all and reads a
         # depth image instead (see cube_bbox_source).
