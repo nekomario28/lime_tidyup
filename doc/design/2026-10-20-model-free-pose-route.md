@@ -59,13 +59,15 @@ described in prose.
 
 ## Enabling it
 
+`color_frontend` is the default, so the node needs no arguments. To use the
+trained keypoint route instead:
+
 ```bash
 ros2 run barcode_detector yolo_pose_node --ros-args \
-  -p perception_backend:=color_frontend
+  -p perception_backend:=yolov8-pose
 ```
 
-`yolov8-pose` remains the default, so the published `/cube_pose_result` contract
-is unchanged unless a caller opts in. With `color_frontend`, a pose is published
+With `color_frontend`, a pose is published
 only when the colour semantics resolve; an unresolved observation is reported in
 `pose_3d_debug` (status `unresolved`) with its face evidence, never as a pose.
 

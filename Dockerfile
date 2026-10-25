@@ -107,6 +107,8 @@ WORKDIR /root/turtlebot3_ws/install
 # MoveIt ignores the requested orientation while the upstream kinematics.yaml keeps
 # position_only_ik: true, which makes any posed goal — the ccc2 grasp — meaningless.
 # Turn it off in the image, and fail the build if the key is not there to patch.
+# The install tree is a colcon symlink tree, so sed needs --follow-symlinks: without
+# it the link is replaced by a copy and the source file keeps the old value.
 RUN k=/root/turtlebot3_ws/install/turtlebot3_lime_moveit_config/share/turtlebot3_lime_moveit_config/config/kinematics.yaml \
     && test -f "$k" \
     && sed -i --follow-symlinks 's/^\([[:space:]]*\)position_only_ik:.*/\1position_only_ik: false/' "$k" \
