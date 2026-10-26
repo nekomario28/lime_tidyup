@@ -346,7 +346,12 @@ class ManipulatorNetwork(SubNet):
         # the mechanism, so read it from TF once per call instead of hard-coding,
         # and carry it along the *requested* tool axis (finger_target above explains
         # why adding it along base_link Z is wrong).
-        if isinstance(yaw_deg, str) and yaw_deg.strip().lower() == 'cube':
+        # yaw_deg may be the string 'cube': the tool yaw is then derived from the
+        # cube's own orientation and snapped to the nearest quarter turn, so the jaws
+        # close across a pair of faces (57 mm) instead of the diagonal
+        # (57(cos t + sin t) mm, past the gripper's 80 mm before 40 deg).
+        yaw_from_cube = isinstance(yaw_deg, str) and yaw_deg.strip().lower() == 'cube'
+        if yaw_from_cube:
             orientation_xyzw = pose.get('orientation_xyzw')
             if not orientation_xyzw or len(orientation_xyzw) != 4:
                 print('arm_to_cube: yaw=cube needs pose_3d.orientation_xyzw')
@@ -425,6 +430,22 @@ class ManipulatorNetwork(SubNet):
                     return True
                 print('arm_to_cube: ik solution is missing arm joints')
             if require_ik:
+                # A face-aligned yaw can land on a pose this arm cannot hold: a KDL sweep
+                # of the grasp pose (2026-10-25) solved every yaw for x = 0.21-0.23 m,
+                # but at x >= 0.24 m with z <= -0.05 m or z = +0.05 m only the straight
+                # yaw solved. Retry once at yaw 0 before failing closed; that call cannot
+                # recurse again because it no longer asks for the cube's yaw.
+                if yaw_from_cube and abs(float(yaw_deg)) > 1e-9:
+                    print('arm_to_cube: no solution at the cube-aligned yaw; '
+                          'retrying at yaw 0')
+                    try:
+                        return self.arm_to_cube(
+                            standoff_m, roll_deg, pitch_deg, 0.0, minimum_confidence,
+                            require_color_fixed, require_ik, reuse_pose,
+                            grasp_at_fingers, direct_ik)
+                    except Exception as error:  # noqa: BLE001
+                        print(f'arm_to_cube: the yaw-0 retry raised '
+                              f'{type(error).__name__}: {error}')
                 if not (GRASP_WINDOW_M[0] <= float(point_base[0])
                         <= GRASP_WINDOW_M[1]):
                     print(f'arm_to_cube: cube x={float(point_base[0]):.3f} m is '
