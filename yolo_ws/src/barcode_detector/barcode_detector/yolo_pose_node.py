@@ -76,7 +76,7 @@ class YoloPoseNode(Node):
         self.declare_parameter('depth_pose_minimum_valid_fraction', 0.30)
         self.declare_parameter('depth_pose_maximum_mad_m', 0.02)
         #: Constant offset added to the depth-centre position, in the published
-        #: frame. Calibrated against ground truth by the 2026-10-20 recognition measurement (verification sandbox);
+        #: frame. Calibrated against ground truth by the 2026-10-20 recognition measurement;
         #: the residual is systematic, so it belongs in one parameter rather than
         #: being guessed per consumer.
         self.declare_parameter('depth_pose_bias_m', '0,0,0')
