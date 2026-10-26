@@ -17,7 +17,7 @@ BT（`SearchCube` → `TakeAim` → `GoFrontCube` → `ArmToCube`）は変えず
 | --- | --- | --- |
 | `detections[].confidence` | `_read_best_cube_detection`, `SearchCube`, `TakeAim` | 候補の採否・しきい値 |
 | `detections[].box_xyxy` | `TakeAim`, `GoFrontCube`, `SearchCube` | 画像中央合わせ・接近判定 |
-| `detections[].pose_3d` | `cube_pose.py`, `GoFrontCube(use_pose_3d)` | 距離・姿勢の証拠 |
+| `detections[].pose_3d` | `yolo_pose_node.py`（`pose_3d` の生成元）, `GoFrontCube(use_pose_3d)` | 距離・姿勢の証拠 |
 
 **`keypoints_xy` / `class_name` / `class_id` / `model_path` は誰も読んでいない。**
 つまりキーポイントモデルを落としても BT 契約は壊れない。
