@@ -9,7 +9,7 @@ from the same pose (cube centre at 0.35 m, one corner towards the lens):
   the white face shades towards grey.
 
 Both are the frames the measurements in
-``doc/research/2026-10-19-*.md`` were taken on, so the tests pin observed
+the 2026-10-19 measurements (verification sandbox) were taken on, so the tests pin observed
 behaviour rather than an idealised drawing. The detector box is the one the
 shipped YOLO model produced on these frames.
 """

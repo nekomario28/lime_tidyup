@@ -188,7 +188,7 @@ confidence は幾何品質のみとし、「色解決済みか」は `pose_3d` �
 yolo 無しモードの実行中はログに `./bin/cubeview` の案内を出す。
 実測（sim depth フレーム、検出器なし）: wireframe が 57 mm キューブに一致、
 `+x=white +y=blue +z=orange`（すべて正解）、`rms=1.03px`、`colors=resolved`、
-`swaps=FFF`。再現は `doc/research/probes/2026-10-20_render_overlay.py`。
+`swaps=FFF`。再現は検証サンドボックスの `probes/2026-10-20_render_overlay.py`（このリポジトリには置かない）。
 
 ## 9. sim での統合確認（実ノード、検出器なし）
 
@@ -214,10 +214,10 @@ ros2 run barcode_detector yolo_pose_node --ros-args \
 | 色 | `color_fixed_semantics_resolved: true`、`+x white / +y blue / +z orange`、`label_swaps [F,F,F]` |
 | overlay | `/cube_pose_debug_image` に publish、`debug_image_path` へも保存（同一 77,249 bytes） |
 
-overlay の実画像: `doc/research/evidence/2026-10-20-model-free-overlay-sim.jpg`
+overlay の実画像: 検証サンドボックスの `research/evidence/2026-10-20-model-free-overlay-sim.jpg`
 （wireframe がキューブに一致、bbox は橙枠で `bbox: depth_blob q=0.70`、面ラベルは
 `+x=white +y=blue +z=orange`、上部に `accepted rms=1.03px … swaps=FFF`）。
-再現手順: `doc/research/probes/2026-10-20_run_sim_nodector.sh`。
+再現手順: 検証サンドボックスの `probes/2026-10-20_run_sim_nodector.sh`。
 
 ## 10. 未検証（この文書が主張しないこと）
 
