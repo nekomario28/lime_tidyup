@@ -14,6 +14,25 @@ from ros_actor import actor, SubNet
 from pymoveit2 import MoveIt2State
 
 
+def face_aligned_yaw_deg(orientation_xyzw):
+    """Return the cube's yaw snapped to the nearest face-aligned quarter turn.
+
+    The jaws have to straddle a *pair of faces*, not the diagonal: with the tool
+    yaw held at one value a cube turned by ``t`` needs 57(cos t + sin t) mm of
+    travel, which passes the gripper's 80 mm just before 40 degrees (measured
+    2026-10-25: 77.9 mm at 30 deg, 80.6 mm at 45 deg). A cube is indistinguishable
+    every quarter turn, so taking the equivalent yaw nearest to zero keeps the jaws
+    square to the faces without asking the wrist for a rotation it may not have.
+    """
+    x, y, z, w = (float(value) for value in orientation_xyzw)
+    yaw = degrees(atan2(2.0 * (w * z + x * y), 1.0 - 2.0 * (y * y + z * z)))
+    while yaw >= 45.0:
+        yaw -= 90.0
+    while yaw < -45.0:
+        yaw += 90.0
+    return yaw
+
+
 def finger_target(point_base, tool_axis, offset_tool, standoff_m):
     """Return the EE position that stops the finger pads short of a point.
 
@@ -235,7 +254,11 @@ class ManipulatorNetwork(SubNet):
         """Aim the arm at the detected cube, with an explicit orientation.
 
         The target is the cube position lifted by ``standoff_m`` along
-        base_link Z, aimed with (roll, pitch, yaw) in degrees. The cube pose is
+        base_link Z, aimed with (roll, pitch, yaw) in degrees. ``yaw_deg`` may also
+        be the string ``'cube'``, which derives the tool yaw from the cube's own
+        ``orientation_xyzw``: the jaws then close across a pair of faces.
+
+        The cube pose is
         taken from ``/cube_pose_result`` and only used when the colour semantics
         are resolved, because that is what fixes which physical face is which; an
         unresolved pose would aim at a symmetry-equivalent cube.
@@ -323,6 +346,16 @@ class ManipulatorNetwork(SubNet):
         # the mechanism, so read it from TF once per call instead of hard-coding,
         # and carry it along the *requested* tool axis (finger_target above explains
         # why adding it along base_link Z is wrong).
+        if isinstance(yaw_deg, str) and yaw_deg.strip().lower() == 'cube':
+            orientation_xyzw = pose.get('orientation_xyzw')
+            if not orientation_xyzw or len(orientation_xyzw) != 4:
+                print('arm_to_cube: yaw=cube needs pose_3d.orientation_xyzw')
+                return False
+            yaw_deg = face_aligned_yaw_deg(orientation_xyzw)
+            print('arm_to_cube: jaws aligned to the cube yaw -> %.1f deg'
+                  % yaw_deg)
+        # A numeric BT attribute reaches the actor as text.
+        yaw_deg = float(yaw_deg)
         angle = [
             radians(float(roll_deg)),
             radians(float(pitch_deg)),

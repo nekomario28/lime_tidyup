@@ -56,15 +56,18 @@
                  (NO_IK_SOLUTION) を返し、腕は動かなかった。前下がり 25 度
                  (roll=0, pitch=155, 指は水平のまま) と standoff 0.06 の組で、
                  事前把持と把持の両方が解ける。
-                 require_color_fixed=0: ArmToCube が使うのは立方体の中心だけで、
-                 対称同値な姿勢はすべて同じ中心を指す（向きはこのツリーが与える）。 -->
+                 yaw="cube": 顎の向きは立方体の orientation から決め、最も 0 に近い 1/4 回転の
+                 同値へ寄せる。顎を固定したままだと立方体の対角を挟むことになり
+                 57(cos t + sin t) mm 必要で、40 度手前で開口 80 mm を超える
+                 （30 度 77.9 / 45 度 80.6 mm）。面に揃えば常に 57 mm で足りる。
+                 require_color_fixed=0: 位置は色解決を要求せず使い、向きは yaw="cube" が決める。 -->
             <Open name="open_gripper"/>
             <ArmToCube
                 name="move_to_pregrasp_ik"
                 standoff="0.06"
                 roll="0.0"
                 pitch="155.0"
-                yaw="0.0"
+                yaw="cube"
                 minimum_confidence="0.30"
                 require_color_fixed="0"
                 require_ik="1"/>
@@ -74,17 +77,16 @@
                 standoff="0.0"
                 roll="0.0"
                 pitch="155.0"
-                yaw="0.0"
+                yaw="cube"
                 minimum_confidence="0.30"
                 require_color_fixed="0"
                 require_ik="1"/>
 
             <!-- 6. 少しだけ前進して、立方体を開いた顎の奥へ押し込む。
                  コース版 ccc は Hirou_Pose から 0.15 m 押し込んで自己中心化して
-                 おり、実機で実績がある。ccc2 は IK で合わせるが、アライン誤差や
-                 立方体の yaw（40 度以上は開口 80 mm を超えて幾何的に挟めない）が
-                 残るので、閉じる前に同じ手を使う。既に standoff 0 で指が立方体に
-                 接しているため距離は半分の 0.03 m（ccc の 0.15 m の内側）。 -->
+                 おり、実機で実績がある。ccc2 は IK で合わせるがアライン誤差は残るので、
+                 閉じる前に同じ手を使う（yaw は上の yaw="cube" が面に揃える）。既に standoff 0 で
+                 指が立方体に接触しているため距離は半分の 0.03 m（ccc の 0.15 m の内側）。 -->
             <Walk
                 name="push_cube_into_jaws"
                 distance="[0.03]"/>

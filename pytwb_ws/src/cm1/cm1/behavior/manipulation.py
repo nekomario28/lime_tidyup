@@ -112,7 +112,7 @@ class ArmToCube(ActorBT):
                     float(standoff),
                     float(roll),
                     float(pitch),
-                    float(yaw),
+                    yaw,
                     float(minimum_confidence),
                     bool(float(require_color_fixed)),
                     bool(float(require_ik)),
