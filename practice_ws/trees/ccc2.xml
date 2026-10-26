@@ -9,12 +9,12 @@
             <!-- 1. 低confidence候補も探索対象にする。接近許可は後段RGB-Dで判定 -->
             <SearchCube
                 name="search_cube"
-                threshold="[0.30]"/>
+                threshold="[0.0]"/>
 
             <!-- 2. 候補を画像中央に合わせる。ここではまだ移動権限を与えない -->
             <TakeAim
                 name="take_aim_before_approach"
-                threshold="[0.30]"
+                threshold="[0.0]"
                 turn_speed="[0.15]"
                 center_tolerance="[12.0]"/>
 
@@ -24,7 +24,7 @@
                  残ってリーチ外。 -->
             <GoFrontCube
                 name="go_front_cube"
-                threshold="[0.30]"
+                threshold="[0.0]"
                 stop_distance="[0.12]"
                 forward_speed="[0.15]"
                 turn_speed="[0.15]"
@@ -41,14 +41,9 @@
                 geometry_maximum_scale="[1.90]"
                 temporal_window_size="[5]"
                 temporal_required_count="[3]"
-                temporal_center_distance_px="[60]"/>
-            <!-- 4. 接近済み・確認済みの同一候補を再び中央に合わせる -->
-            <TakeAim
-                name="take_aim_after_approach"
-                threshold="[0.30]"
-                turn_speed="[0.10]"
-                center_tolerance="[10.0]"/>
-  
+                temporal_center_distance_px="[60]"
+                cache_grasp_observation="1"/>
+
             <!-- 5. 認識した立方体の姿勢に IK で向きを合わせ、事前把持→把持へ移る。
                  工具軸（指の向く方向）を真下に向ける roll=180 はこのアームでは
                  幾何的に不可能: PyKDL の掃引で把持点まわりの最良が鉛直から 23.7 度、
@@ -68,7 +63,8 @@
                 roll="0.0"
                 pitch="155.0"
                 yaw="cube"
-                minimum_confidence="0.30"
+                minimum_confidence="0.0"
+                use_cached_observation="1"
                 require_color_fixed="0"
                 require_ik="1"/>
             <ArmToCube
@@ -78,7 +74,8 @@
                 roll="0.0"
                 pitch="155.0"
                 yaw="cube"
-                minimum_confidence="0.30"
+                minimum_confidence="0.0"
+                use_cached_observation="1"
                 require_color_fixed="0"
                 require_ik="1"/>
 

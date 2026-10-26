@@ -12,20 +12,39 @@ from control_msgs.action import GripperCommand as GripperCommandAction
 
 from ros_actor import actor, SubNet
 from pymoveit2 import MoveIt2State
+from ..cube_pose import transform_pose
 
 
-def face_aligned_yaw_deg(orientation_xyzw):
-    """Return the cube's yaw snapped to the nearest face-aligned quarter turn.
-
-    The jaws have to straddle a *pair of faces*, not the diagonal: with the tool
-    yaw held at one value a cube turned by ``t`` needs 57(cos t + sin t) mm of
-    travel, which passes the gripper's 80 mm just before 40 degrees (measured
-    2026-10-25: 77.9 mm at 30 deg, 80.6 mm at 45 deg). A cube is indistinguishable
-    every quarter turn, so taking the equivalent yaw nearest to zero keeps the jaws
-    square to the faces without asking the wrist for a rotation it may not have.
-    """
+def _rotation_from_quaternion(orientation_xyzw):
+    """The rotation matrix an XYZW quaternion stands for."""
     x, y, z, w = (float(value) for value in orientation_xyzw)
-    yaw = degrees(atan2(2.0 * (w * z + x * y), 1.0 - 2.0 * (y * y + z * z)))
+    return (
+        (1.0 - 2.0 * (y * y + z * z), 2.0 * (x * y - z * w), 2.0 * (x * z + y * w)),
+        (2.0 * (x * y + z * w), 1.0 - 2.0 * (x * x + z * z), 2.0 * (y * z - x * w)),
+        (2.0 * (x * z - y * w), 2.0 * (y * z + x * w), 1.0 - 2.0 * (x * x + y * y)),
+    )
+
+
+def face_aligned_yaw_deg(orientation_base_xyzw):
+    """Tool yaw that puts the jaws across a *pair of faces*, in base_link.
+
+    The jaws must straddle a pair of faces, not the diagonal: with the tool yaw
+    held at one value a cube turned by ``t`` needs 57(cos t + sin t) mm of
+    travel, which passes the gripper's 80 mm just before 40 degrees (measured
+    2026-10-25: 77.9 mm at 30 deg, 80.6 mm at 45 deg).
+
+    ``orientation_base_xyzw`` is the cube's own frame expressed in base_link, so
+    the axis to align with is whichever of the cube's three axes is most
+    horizontal -- *not* always the first one, because which cube axis points at
+    the ceiling depends on how the cube sits. A cube is indistinguishable every
+    quarter turn about that axis, so the angle is snapped to the nearest quarter
+    turn, which also keeps the wrist off rotations it may not have.
+    """
+    rotation = _rotation_from_quaternion(orientation_base_xyzw)
+    axes = [tuple(rotation[row][column] for row in range(3))
+            for column in range(3)]
+    horizontal = min(axes, key=lambda axis: abs(axis[2]))
+    yaw = degrees(atan2(horizontal[1], horizontal[0]))
     while yaw >= 45.0:
         yaw -= 90.0
     while yaw < -45.0:
@@ -248,6 +267,7 @@ class ManipulatorNetwork(SubNet):
         require_color_fixed=True,
         require_ik=False,
         reuse_pose=False,
+        use_cached_observation=False,
         grasp_at_fingers=True,
         direct_ik=True,
     ):
@@ -258,29 +278,41 @@ class ManipulatorNetwork(SubNet):
         be the string ``'cube'``, which derives the tool yaw from the cube's own
         ``orientation_xyzw``: the jaws then close across a pair of faces.
 
-        The cube pose is
-        taken from ``/cube_pose_result`` and only used when the colour semantics
-        are resolved, because that is what fixes which physical face is which; an
-        unresolved pose would aim at a symmetry-equivalent cube.
+        Normally the cube pose comes from ``/cube_pose_result``. The ccc2 tree
+        can instead use the accepted pre-approach pose cached in ``odom``, so the
+        arm can keep the measured cube angle after the camera is occluded.
+        ``require_color_fixed`` controls whether unresolved face semantics are
+        allowed to determine the grasp orientation.
 
         Orientation is only honoured when the IK solver weights rotation, i.e.
         when ``position_only_ik`` is false. The container ships it as true, so
         it has to be turned off in the image before MoveIt starts; with the
         upstream default the angles here would be ignored.
         """
-        try:
-            msg = self.run_actor('cube_pose_result')
-            data = json.loads(msg.data)
-        except (AttributeError, TypeError, json.JSONDecodeError) as error:
-            print(f'arm_to_cube: no cube result: {error}')
-            return False
+        if use_cached_observation:
+            cached = self.get_value('cube_grasp_observation_odom')
+            if not isinstance(cached, dict):
+                print('arm_to_cube: no pre-approach cube pose is cached')
+                return False
+            detection = {
+                'confidence': cached.get('confidence', 0.0),
+                'pose_3d': cached.get('pose_3d'),
+            }
+            confidence = float(detection['confidence'])
+        else:
+            try:
+                msg = self.run_actor('cube_pose_result')
+                data = json.loads(msg.data)
+            except (AttributeError, TypeError, json.JSONDecodeError) as error:
+                print(f'arm_to_cube: no cube result: {error}')
+                return False
 
-        detection = None
-        confidence = 0.0
-        for candidate in data.get('detections', []):
-            value = float(candidate.get('confidence', 0.0))
-            if value > confidence:
-                detection, confidence = candidate, value
+            detection = None
+            confidence = 0.0
+            for candidate in data.get('detections', []):
+                value = float(candidate.get('confidence', 0.0))
+                if value > confidence:
+                    detection, confidence = candidate, value
         if detection is None or confidence < float(minimum_confidence):
             print(f'arm_to_cube: no cube above the confidence floor '
                   f'({confidence:.2f} < {float(minimum_confidence):.2f})')
@@ -310,34 +342,35 @@ class ManipulatorNetwork(SubNet):
             print(f'arm_to_cube: no transform {frame_id} -> base_link')
             return False
 
-        rotation = quaternion.as_rotation_matrix(np.quaternion(
-            tf.transform.rotation.w, tf.transform.rotation.x,
-            tf.transform.rotation.y, tf.transform.rotation.z))
-        point_camera = np.array([float(value) for value in position])
-        translation = np.array([
-            tf.transform.translation.x,
-            tf.transform.translation.y,
-            tf.transform.translation.z,
-        ])
-        point_base = rotation @ point_camera + translation
+        transform = tf.transform
+        position_base, orientation_base = transform_pose(
+            position,
+            pose.get('orientation_xyzw', (0.0, 0.0, 0.0, 1.0)),
+            (transform.translation.x, transform.translation.y,
+             transform.translation.z),
+            (transform.rotation.x, transform.rotation.y,
+             transform.rotation.z, transform.rotation.w),
+        )
+        point_base = position_base
 
-        # ccc2's grasp step reuses the position its pregrasp measured. The
-        # pregrasp puts the arm in front of the camera, the cube's colour region
-        # then shrinks to whatever is still visible, and the single-view pose
-        # jumps: measured 2026-10-24 with the cube at yaw 45 deg, y went from
-        # -0.014 to -0.096 m between the two steps while the base stood still, and
-        # the grasp's IK answered -31, so the tree failed closed (require_ik)
-        # instead of grasping. Only the position is reused; the orientation still
-        # comes from this call's own arguments.
         if reuse_pose:
-            cached = self.get_value('last_cube_point_base')
-            if cached is not None:
-                point_base = tuple(float(value) for value in cached)
-                print('arm_to_cube: reusing the cube position from the previous '
-                      'step (%.3f, %.3f, %.3f)' % point_base)
+            cached_point = self.get_value('last_cube_point_base')
+            cached_orientation = self.get_value('last_cube_orientation_base')
+            if cached_point is not None:
+                point_base = tuple(float(value) for value in cached_point)
+                print('arm_to_cube: reusing pregrasp cube position '
+                      '(%.3f, %.3f, %.3f)' % point_base)
+            if cached_orientation is not None:
+                orientation_base = tuple(
+                    float(value) for value in cached_orientation)
         else:
             self.set_value('last_cube_point_base',
                            tuple(float(value) for value in point_base))
+            self.set_value('last_cube_orientation_base',
+                           tuple(float(value) for value in orientation_base))
+
+        pose = dict(pose)
+        pose['orientation_xyzw'] = list(orientation_base)
 
         # Aim the *fingertips* at the cube, not the wrist. pymoveit2 moves
         # end_effector_link, which on this URDF sits 11.5 cm past link7 while the
@@ -442,7 +475,8 @@ class ManipulatorNetwork(SubNet):
                         return self.arm_to_cube(
                             standoff_m, roll_deg, pitch_deg, 0.0, minimum_confidence,
                             require_color_fixed, require_ik, reuse_pose,
-                            grasp_at_fingers, direct_ik)
+                            use_cached_observation, grasp_at_fingers,
+                            direct_ik)
                     except Exception as error:  # noqa: BLE001
                         print(f'arm_to_cube: the yaw-0 retry raised '
                               f'{type(error).__name__}: {error}')

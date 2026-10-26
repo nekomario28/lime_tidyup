@@ -8,7 +8,7 @@
         <!--
         <Place name="place_action"/>
         -->
-        <Open nam="open"/>
+        <Open name="open"/>
     </Sequence>
     </BehaviorTree>
 </root>

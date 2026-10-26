@@ -101,19 +101,20 @@ WORKDIR /root/turtlebot3_ws
 RUN git clone -b humble-devel https://github.com/ROBOTIS-JAPAN-GIT/turtlebot3_lime.git
 RUN git clone https://github.com/ldrobotSensorTeam/ldlidar_stl_ros2.git
 RUN git clone -b foxy-devel https://github.com/pal-robotics/realsense_gazebo_plugin.git
-RUN source /opt/ros/${ROS_DISTRO}/setup.bash \
-    && colcon build --symlink-install
-WORKDIR /root/turtlebot3_ws/install
 # MoveIt ignores the requested orientation while the upstream kinematics.yaml keeps
-# position_only_ik: true, which makes any posed goal — the ccc2 grasp — meaningless.
-# Turn it off in the image, and fail the build if the key is not there to patch.
-# The install tree is a colcon symlink tree, so sed needs --follow-symlinks: without
-# it the link is replaced by a copy and the source file keeps the old value.
-RUN k=/root/turtlebot3_ws/install/turtlebot3_lime_moveit_config/share/turtlebot3_lime_moveit_config/config/kinematics.yaml \
+# position_only_ik: true, which makes any posed goal -- the ccc2 grasp -- meaningless.
+# The source file is what this repository owns, not the installed copy: the install
+# tree is a colcon symlink tree that the build below regenerates from the clone, and a
+# container built before the patch existed arrived with true and silently solved
+# every grasp without the requested orientation (measured 2026-10-26).
+COPY ./project/resource/turtlebot3_lime_kinematics.yaml /root/turtlebot3_ws/turtlebot3_lime/turtlebot3_lime_moveit_config/config/kinematics.yaml
+RUN source /opt/ros/${ROS_DISTRO}/setup.bash \
+    && colcon build --symlink-install \
+    && k=/root/turtlebot3_ws/install/turtlebot3_lime_moveit_config/share/turtlebot3_lime_moveit_config/config/kinematics.yaml \
     && test -f "$k" \
-    && sed -i --follow-symlinks 's/^\([[:space:]]*\)position_only_ik:.*/\1position_only_ik: false/' "$k" \
     && grep -n 'position_only_ik' "$k" \
     && grep -q 'position_only_ik: false' "$k"
+WORKDIR /root/turtlebot3_ws/install
 COPY ./project/resource/turtlebot3_lime.urdf.xacro turtlebot3_lime_description/share/turtlebot3_lime_description/urdf
 # COPY ./project/resource/gazebo2.launch.py turtlebot3_lime_bringup/share/turtlebot3_lime_bringup/launch
 # COPY ./project/resource/moveit_gazebo2.launch.py turtlebot3_lime_moveit_config/share/turtlebot3_lime_moveit_config/launch

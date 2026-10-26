@@ -31,7 +31,8 @@ class GoFrontCube(ActorBT):
         geometry_maximum_scale=1.90,
         temporal_window_size=1.0,
         temporal_required_count=1.0,
-        temporal_center_distance_px=60.0
+        temporal_center_distance_px=60.0,
+        cache_grasp_observation=0.0
     ):
         """Store approach and depth-quality parameters for the actor call."""
         super(GoFrontCube, self).__init__(
@@ -63,6 +64,7 @@ class GoFrontCube(ActorBT):
         self.temporal_center_distance_px = float(
             temporal_center_distance_px
         )
+        self.cache_grasp_observation = float(cache_grasp_observation)
 
     def initialise(self):
         """Dispatch one configured cube-approach actor call."""
@@ -90,7 +92,9 @@ class GoFrontCube(ActorBT):
             f'temporal_window_size={self.temporal_window_size}',
             f'temporal_required_count={self.temporal_required_count}',
             'temporal_center_distance_px='
-            f'{self.temporal_center_distance_px}'
+            f'{self.temporal_center_distance_px}',
+            'cache_grasp_observation='
+            f'{self.cache_grasp_observation}'
         )
 
         self.shared.set_callee([
@@ -114,7 +118,8 @@ class GoFrontCube(ActorBT):
                     self.geometry_maximum_scale,
                     self.temporal_window_size,
                     self.temporal_required_count,
-                    self.temporal_center_distance_px
+                    self.temporal_center_distance_px,
+                    self.cache_grasp_observation
                 )
             )
         ])

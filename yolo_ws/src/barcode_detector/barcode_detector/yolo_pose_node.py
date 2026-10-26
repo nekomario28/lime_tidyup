@@ -9,6 +9,8 @@ import rclpy
 from rclpy.node import Node
 
 from sensor_msgs.msg import CameraInfo, Image
+from tf2_ros import Buffer, TransformListener
+from rclpy.time import Time
 from std_msgs.msg import String
 from cv_bridge import CvBridge
 
@@ -30,6 +32,10 @@ from .cube_model_free_pose import (
 )
 from .cube_overlay import draw_cube_overlay
 from .cube_pose_evidence import attach_pose_evidence
+from .cube_depth_pose import (
+    CubeDepthPoseError,
+    estimate_cube_depth_pose,
+)
 
 
 class YoloPoseNode(Node):
@@ -73,6 +79,15 @@ class YoloPoseNode(Node):
         # the two-face pose is not. The centre needs no face semantics: a cube is
         # symmetric about it, so this is the honest 3D target for a top grasp.
         self.declare_parameter('depth_pose_enabled', True)
+        # Orientation from the aligned depth image, for cubes the colour
+        # frontends cannot resolve (a single-coloured cube, or a trained
+        # model without the eight ordered corner keypoints).
+        self.declare_parameter('depth_axis_enabled', True)
+        self.declare_parameter('depth_axis_roi_fraction', 0.25)
+        # Frame whose Z axis is up for the arm. The depth pose takes its up
+        # axis from here, which is exact, instead of voting on the pixels
+        # below the box.
+        self.declare_parameter('up_frame', 'base_link')
         self.declare_parameter('depth_pose_minimum_valid_fraction', 0.30)
         self.declare_parameter('depth_pose_maximum_mad_m', 0.02)
         #: Constant offset added to the depth-centre position, in the published
@@ -135,6 +150,19 @@ class YoloPoseNode(Node):
         self.depth_pose_enabled = bool(
             self.get_parameter('depth_pose_enabled').value
         )
+        self.depth_axis_enabled = bool(
+            self.get_parameter('depth_axis_enabled').value
+        )
+        self.depth_axis_roi_fraction = float(
+            self.get_parameter('depth_axis_roi_fraction').value
+        )
+        # The verdict is logged when it changes: a withheld pose that no one
+        # can read is indistinguishable from a route that never ran.
+        self.depth_axis_verdict = None
+        self.up_frame = str(self.get_parameter('up_frame').value)
+        self.tf_buffer = Buffer()
+        self.tf_listener = TransformListener(self.tf_buffer, self)
+        self.up_frame_warning = None
         if self.bbox_source == 'depth_blob' and not self.depth_topic:
             raise RuntimeError(
                 'bbox_source=depth_blob requires the depth_topic parameter'
@@ -411,6 +439,126 @@ class YoloPoseNode(Node):
             'perception_backend': 'color_frontend',
         }
 
+    def _apply_depth_axis_pose(self, detection, timestamp):
+        """Fill pose_3d from the aligned depth image when colour cannot.
+
+        The depth pose is a cube *frame*, not a pose of labelled faces: it is one
+        of the four frames a cube is symmetric under. It is published as its own
+        geometry id so a consumer can tell it from the eight-corner PnP pose.
+        """
+        if not self.depth_axis_enabled:
+            return detection
+        previous = dict(detection.get('pose_3d_debug') or {})
+
+        def withhold(reason):
+            if reason != self.depth_axis_verdict:
+                self.get_logger().warning(
+                    f'depth pose withheld: {reason}')
+                self.depth_axis_verdict = reason
+            detection['pose_3d_debug'] = {
+                'status': 'rejected',
+                'reason': reason,
+                'backend': 'depth_geometry',
+                'previous': previous,
+            }
+            return detection
+
+        depth = self.latest_depth
+        if depth is None:
+            return withhold('no aligned depth frame')
+        if self.camera_info is None:
+            return withhold('colour CameraInfo unavailable')
+        info = self.depth_camera_info
+        if info is None:
+            return withhold('depth CameraInfo unavailable')
+        colour_frame = self.camera_info.header.frame_id
+        if not colour_frame or info.header.frame_id != colour_frame:
+            return withhold(
+                'depth frame "%s" is not the colour frame "%s"; the box is in '
+                'colour pixels, so the depth must be aligned to colour'
+                % (info.header.frame_id, colour_frame)
+            )
+        if depth.shape[:2] != (self.latest_image_height, self.latest_image_width):
+            return withhold(
+                'depth image %dx%d is not on the colour grid %dx%d'
+                % (depth.shape[1], depth.shape[0],
+                   self.latest_image_width, self.latest_image_height)
+            )
+        up_hint = self._up_axis_in_camera_frame(colour_frame)
+        try:
+            pose = estimate_cube_depth_pose(
+                depth,
+                detection['box_xyxy'],
+                info.k,
+                side_length_m=float(
+                    self.get_parameter('cube_side_length_m').value
+                ),
+                roi_fraction=self.depth_axis_roi_fraction,
+                up_hint_xyz=up_hint,
+            )
+        except CubeDepthPoseError as error:
+            return withhold(str(error))
+        except Exception as error:  # noqa: BLE001 - one bad frame must not stop the node
+            return withhold('%s: %s' % (type(error).__name__, error))
+
+        verdict = (
+            'accepted: pos=(%.3f, %.3f, %.3f) up=%s tilt=%.1fdeg '
+            'up_share=%s face_share=%.2f support=%d extent=%.3f m'
+            % (pose.position_m[0], pose.position_m[1], pose.position_m[2],
+               pose.up_source, pose.up_tilt_deg,
+               'n/a' if pose.up_share is None else '%.2f' % pose.up_share,
+               pose.face_share, pose.face_support, pose.in_plane_extent_m)
+        )
+        if verdict != self.depth_axis_verdict:
+            self.get_logger().info(f'depth pose {verdict}')
+            self.depth_axis_verdict = verdict
+        detection['pose_3d'] = pose.as_dict(
+            frame_id=colour_frame, timestamp=timestamp)
+        detection['pose_3d_debug'] = {
+            'status': 'accepted',
+            'reason': '',
+            'backend': 'depth_geometry',
+            'geometry_id': pose.as_dict(
+                frame_id=colour_frame, timestamp=timestamp)['geometry_id'],
+            'face_support': int(pose.face_support),
+            'face_share': pose.face_share,
+            'face_residual_m': pose.face_residual_m,
+            'up_source': pose.up_source,
+            'up_share': pose.up_share,
+            'up_tilt_deg': pose.up_tilt_deg,
+            'in_plane_extent_m': pose.in_plane_extent_m,
+            'previous': previous,
+        }
+        return detection
+
+    def _up_axis_in_camera_frame(self, camera_frame):
+        """The up axis for the arm, expressed in the camera frame.
+
+        The arm commands live in ``up_frame``, so its Z axis is what decides
+        which cube axes are horizontal -- not a guess at where the floor is. A
+        missing transform leaves the caller to fit the floor instead.
+        """
+        if not self.up_frame or not camera_frame:
+            return None
+        try:
+            transform = self.tf_buffer.lookup_transform(
+                camera_frame, self.up_frame, Time())
+        except Exception as error:  # noqa: BLE001 - absence is a supported case
+            if str(error) != self.up_frame_warning:
+                self.get_logger().warning(
+                    f'no transform {camera_frame} <- {self.up_frame} ({error}); '
+                    'falling back to the floor below the box')
+                self.up_frame_warning = str(error)
+            return None
+        rotation = transform.transform.rotation
+        x, y, z, w = (float(rotation.x), float(rotation.y),
+                      float(rotation.z), float(rotation.w))
+        return [
+            2.0 * (x * z + y * w),
+            2.0 * (y * z - x * w),
+            1.0 - 2.0 * (x * x + y * y),
+        ]
+
     def camera_info_callback(self, msg):
         """Keep the latest static color-camera calibration."""
         self.camera_info = msg
@@ -509,6 +657,10 @@ class YoloPoseNode(Node):
                         detection = self._apply_model_free_pose(
                             cv_image, detection, msg, now
                         )
+                        if detection.get('pose_3d') is None:
+                            detection = self._apply_depth_axis_pose(
+                                detection, now
+                            )
                     else:
                         pose_3d, pose_debug = self._estimate_pose_3d_with_debug(
                             msg,
@@ -1177,7 +1329,14 @@ class YoloPoseNode(Node):
 
         usable = int(debug.get('usable_keypoint_count', 0))
         total = int(debug.get('total_keypoint_count', 0))
-        if status == 'accepted':
+        if status == 'accepted' and debug.get('backend') == 'depth_geometry':
+            evidence_text = (
+                f'3D PASS depth face={int(debug.get("face_support", 0))}px '
+                f'plane_mad={float(debug.get("face_residual_m", 0.0)):.4f}m '
+                f'extent={float(debug.get("in_plane_extent_m", 0.0)):.3f}m'
+            )
+            self._draw_depth_axes(cv2, image, detection.get('pose_3d'))
+        elif status == 'accepted':
             inliers = int(debug.get('inlier_count', 0))
             correspondences = int(debug.get('correspondence_count', 0))
             rms = float(debug.get('reprojection_error_px', float('nan')))
@@ -1240,6 +1399,50 @@ class YoloPoseNode(Node):
                 (px + 7, py - 5),
                 scale=0.38
             )
+
+    def _draw_depth_axes(self, cv2, image, pose):
+        """Draw the measured cube axes so the frame can be judged by eye."""
+        if not isinstance(pose, dict):
+            return
+        position = pose.get('position_m')
+        quaternion = pose.get('orientation_xyzw')
+        info = self.camera_info
+        if not position or not quaternion or info is None:
+            return
+        k = info.k
+        fx, fy, cx, cy = (float(k[0]), float(k[4]), float(k[2]), float(k[5]))
+        origin = list(pose['position_m'])
+        length = 0.5 * float(pose.get('side_length_m', 0.057))
+
+        def project(point):
+            if point[2] <= 1e-6:
+                return None
+            return (int(round(fx * point[0] / point[2] + cx)),
+                    int(round(fy * point[1] / point[2] + cy)))
+
+        centre = project(origin)
+        if centre is None:
+            return
+        cv2.circle(image, centre, 3, (255, 255, 255), -1)
+        for index, colour in enumerate(
+                ((60, 60, 255), (60, 255, 60), (255, 160, 60))):
+            axis = self._rotate_by_quaternion(quaternion, index)
+            tip = [origin[axis_index] + length * axis[axis_index]
+                   for axis_index in range(3)]
+            end = project(tip)
+            if end is not None:
+                cv2.line(image, centre, end, colour, 2)
+
+    @staticmethod
+    def _rotate_by_quaternion(quaternion_xyzw, column):
+        """The cube axis a rotation matrix column points along."""
+        x, y, z, w = (float(value) for value in quaternion_xyzw)
+        matrix = (
+            (1 - 2 * (y * y + z * z), 2 * (x * y - z * w), 2 * (x * z + y * w)),
+            (2 * (x * y + z * w), 1 - 2 * (x * x + z * z), 2 * (y * z - x * w)),
+            (2 * (x * z - y * w), 2 * (y * z + x * w), 1 - 2 * (x * x + y * y)),
+        )
+        return [float(value) for value in matrix[column]]
 
     @staticmethod
     def _draw_text(cv2, image, text, origin, scale=0.48):

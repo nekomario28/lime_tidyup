@@ -103,7 +103,7 @@ class ArmToCube(ActorBT):
 
     def __init__(self, name, node, standoff=0.12, roll=180.0, pitch=0.0,
                  yaw=0.0, minimum_confidence=0.30, require_color_fixed=1,
-                 require_ik=0, reuse_pose=0):
+                 require_ik=0, reuse_pose=0, use_cached_observation=0):
         super().__init__(
             name,
             ((
@@ -117,6 +117,7 @@ class ArmToCube(ActorBT):
                     bool(float(require_color_fixed)),
                     bool(float(require_ik)),
                     bool(float(reuse_pose)),
+                    bool(float(use_cached_observation)),
                 ),
             ),),
         )

@@ -125,6 +125,22 @@ echo "[ccc] starting Lime and YOLO containers"
 started=true
 run "${compose[@]}" up -d --no-build lime_simul_demo_yuu yolo
 
+# The containers outlive a run (and --keep leaves them up on purpose), so a
+# second run would add a *second* perception node, Nav2 and MoveIt beside the
+# first. Duplicate nodes are not benign: a consumer with a depth-1 subscription
+# then reads whichever publisher won the race -- measured 2026-10-26, a stale
+# perception node without the depth topic published pose-less detections next to
+# the new one and ccc2 refused to grasp -- and two Nav2 lifecycle managers
+# answer each other's transitions, which shows up as "No transition matching 1".
+# The patterns are bracketed so pkill cannot match the shell running it.
+echo "[ccc] stopping processes left by an earlier run"
+for stale in '[n]avigation2.launch.py' '[m]oveit_core.launch.py' 'python3 [c]m1'; do
+    run "${compose[@]}" exec -T lime_simul_demo_yuu \
+        bash -lc "pkill -f '${stale}' || true"
+done
+run "${compose[@]}" exec -T yolo \
+    bash -lc "pkill -f 'lib/barcode_detector/[y]olo_pose_node' || true"
+
 echo "[ccc] rebuilding barcode_detector from mounted dev2 source"
 yolo_build_command='set -Eeuo pipefail; source /opt/ros/humble/setup.bash; cd /root/yolo_ws; colcon build --symlink-install --packages-select barcode_detector'
 run "${compose[@]}" exec -T yolo bash -lc "${yolo_build_command}"
@@ -136,7 +152,11 @@ evidence_args=""
 if [[ "${CUBE_EVIDENCE_GATE:-0}" == "1" ]]; then
     evidence_args='-p enable_visibility_gate:=true -p enable_face_color_selection:=true '
 fi
-yolo_command="mkdir -p /root/ccc_evidence; source /opt/ros/humble/setup.bash; source /root/yolo_ws/install/setup.bash; exec ros2 run barcode_detector yolo_pose_node --ros-args ${evidence_args}-p debug_image_path:=/root/ccc_evidence/cube_pose_debug.jpg >>/root/ccc_evidence/yolo.log 2>&1"
+# The depth pose route needs the depth aligned to the colour image, because the
+# detector box is in colour pixels. Without the topic the node withholds that
+# pose and only the colour frontends run.
+yolo_depth_topic="${YOLO_DEPTH_TOPIC:-/camera/camera/aligned_depth_to_color/image_raw}"
+yolo_command="mkdir -p /root/ccc_evidence; source /opt/ros/humble/setup.bash; source /root/yolo_ws/install/setup.bash; exec ros2 run barcode_detector yolo_pose_node --ros-args ${evidence_args}-p depth_topic:=${yolo_depth_topic} -p debug_image_path:=/root/ccc_evidence/cube_pose_debug.jpg >>/root/ccc_evidence/yolo.log 2>&1"
 printf -v map_file_quoted '%q' "${map_file}"
 navigation_command="mkdir -p /root/ccc_evidence; source /opt/ros/humble/setup.bash; source /project/lib_ws/install/setup.bash; source /root/turtlebot3_ws/install/setup.bash; exec ros2 launch turtlebot3_lime_navigation2 navigation2.launch.py map_yaml_file:=${map_file_quoted} >>/root/ccc_evidence/navigation.log 2>&1"
 moveit_command='mkdir -p /root/ccc_evidence; source /opt/ros/humble/setup.bash; source /project/lib_ws/install/setup.bash; source /root/turtlebot3_ws/install/setup.bash; exec ros2 launch turtlebot3_lime_moveit_config moveit_core.launch.py >>/root/ccc_evidence/moveit.log 2>&1'

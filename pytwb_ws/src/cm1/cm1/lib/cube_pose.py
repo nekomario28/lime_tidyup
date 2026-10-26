@@ -60,3 +60,48 @@ def accepted_pose_distance(
         return None
 
     return distance
+
+
+def transform_pose(
+    position_xyz, orientation_xyzw, translation_xyz, rotation_xyzw
+):
+    """Transform a pose using target-from-source translation and rotation."""
+    position = tuple(float(value) for value in position_xyz)
+    orientation = tuple(float(value) for value in orientation_xyzw)
+    translation = tuple(float(value) for value in translation_xyz)
+    rotation = tuple(float(value) for value in rotation_xyzw)
+    lengths = tuple(map(len, (position, orientation, translation, rotation)))
+    if lengths != (3, 4, 3, 4):
+        raise ValueError('pose transform expects 3D position and XYZW quaternions')
+    if not all(
+        math.isfinite(value)
+        for values in (position, orientation, translation, rotation)
+        for value in values
+    ):
+        raise ValueError('pose transform values must be finite')
+
+    qx, qy, qz, qw = rotation
+    norm = math.sqrt(qx * qx + qy * qy + qz * qz + qw * qw)
+    if norm < 1e-12:
+        raise ValueError('frame rotation quaternion is zero')
+    qx, qy, qz, qw = (value / norm for value in rotation)
+
+    # Rotate the point with q * v * q^-1 using the cross-product form.
+    vx, vy, vz = position
+    tx = 2.0 * (qy * vz - qz * vy)
+    ty = 2.0 * (qz * vx - qx * vz)
+    tz = 2.0 * (qx * vy - qy * vx)
+    rotated_position = (
+        vx + qw * tx + qy * tz - qz * ty + translation[0],
+        vy + qw * ty + qz * tx - qx * tz + translation[1],
+        vz + qw * tz + qx * ty - qy * tx + translation[2],
+    )
+
+    px, py, pz, pw = orientation
+    transformed_orientation = (
+        qw * px + qx * pw + qy * pz - qz * py,
+        qw * py - qx * pz + qy * pw + qz * px,
+        qw * pz + qx * py - qy * px + qz * pw,
+        qw * pw - qx * px - qy * py - qz * pz,
+    )
+    return rotated_position, transformed_orientation

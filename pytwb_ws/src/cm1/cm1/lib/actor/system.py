@@ -40,7 +40,7 @@ from ..cube_depth import (
     consistent_depth_median,
     estimate_cube_depth,
 )
-from ..cube_pose import accepted_pose_distance
+from ..cube_pose import accepted_pose_distance, transform_pose
 from .manipulator import ManipulatorNetwork
 from .tools import Tools
 from .voice import VoiceNetwork
@@ -289,6 +289,56 @@ class Tb3NavigationSystem(SubSystem):
             print('cube candidate: CameraInfo has invalid focal/image size')
             return None
         return focal_length_px, image_width, image_height
+
+    def _cache_cube_grasp_observation(self, detection):
+        pose = detection.get('pose_3d') if isinstance(detection, dict) else None
+        if not isinstance(pose, dict):
+            print('go_front_cube: accepted detection has no 3D pose to cache')
+            return False
+        frame_id = pose.get('frame_id')
+        position = pose.get('position_m')
+        orientation = pose.get('orientation_xyzw')
+        if (
+            not frame_id
+            or not position
+            or len(position) != 3
+            or not orientation
+            or len(orientation) != 4
+        ):
+            print(
+                'go_front_cube: accepted 3D pose is incomplete; '
+                'cannot cache grasp pose'
+            )
+            return False
+        tf_buffer = self.get_value('tf_buffer')
+        try:
+            transform = tf_buffer.lookup_transform(
+                'odom', frame_id, rclpy.time.Time())
+            tf = transform.transform
+            position_odom, orientation_odom = transform_pose(
+                position,
+                orientation,
+                (tf.translation.x, tf.translation.y, tf.translation.z),
+                (tf.rotation.x, tf.rotation.y, tf.rotation.z, tf.rotation.w),
+            )
+        except Exception as error:
+            print(f'go_front_cube: cannot cache grasp pose in odom: {error}')
+            return False
+        cached_pose = dict(pose)
+        cached_pose.update({
+            'frame_id': 'odom',
+            'position_m': list(position_odom),
+            'orientation_xyzw': list(orientation_odom),
+        })
+        self.set_value('cube_grasp_observation_odom', {
+            'confidence': float(detection.get('confidence', 0.0)),
+            'pose_3d': cached_pose,
+        })
+        print(
+            'go_front_cube: cached cube position and orientation in odom '
+            'before approach'
+        )
+        return True
 
     def _confirm_cube_with_rgbd(
         self,
@@ -594,6 +644,8 @@ class Tb3NavigationSystem(SubSystem):
         キューブを探し、ある程度中央に入ったら探索完了にする。
         """
 
+        self.set_value('cube_grasp_observation_odom', None)
+        self.set_value('last_cube_point_base', None)
         threshold = float(threshold)
         center_tolerance = float(center_tolerance)
         image_width = float(image_width)
@@ -745,7 +797,8 @@ class Tb3NavigationSystem(SubSystem):
         geometry_maximum_scale=1.90,
         temporal_window_size=1.0,
         temporal_required_count=1.0,
-        temporal_center_distance_px=60.0
+        temporal_center_distance_px=60.0,
+        cache_grasp_observation=0.0
     ):
         """
         YOLOと品質ゲート済みDepthを取得し、
@@ -790,6 +843,7 @@ class Tb3NavigationSystem(SubSystem):
             int(float(temporal_required_count)),
         )
         temporal_center_distance_px = float(temporal_center_distance_px)
+        cache_grasp_observation = float(cache_grasp_observation) >= 0.5
 
         # 外から変更しない固定値
         horizontal_fov = 60.0
@@ -837,6 +891,12 @@ class Tb3NavigationSystem(SubSystem):
                     image_width,
                     image_height,
                 ) = confirmed
+                if (
+                    cache_grasp_observation
+                    and not self._cache_cube_grasp_observation(best_detection)
+                ):
+                    self.run_actor('motor', Twist())
+                    return False
                 distance_source = (
                     f'rgbd_geometry_temporal_'
                     f'{temporal_required_count}_of_{temporal_window_size}'
