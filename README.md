@@ -68,10 +68,10 @@ The original Coke Can model is too heavy to pick as it is, so edit the model and
 ## Picking Operation
 The picking operation, which combines bt_search and bt_catch, can be executed by the 'bt_pick' Behavior Tree.
 
-## Design and research notes
-The notes live in two places. `doc/design/` describes how a subsystem is put together
-and why it is shaped that way; `doc/research/` holds what was measured, including the
-surveys of what already exists before building anything new.
+## Design notes
+`doc/design/` describes how a subsystem is put together and why it is shaped that way.
+What was measured, and the probes that measured it, live outside this repository (see
+the verification sandbox): this project's public surface keeps only what the robot runs.
 
 ## Internal structure
 ros_actor is heavily used to implement each Behavior Tree. As the main thing,
